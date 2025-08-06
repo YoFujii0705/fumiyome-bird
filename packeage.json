@@ -1,0 +1,96 @@
+{
+  "name": "activity-tracker-bot",
+  "version": "2.0.0",
+  "description": "Discord bot for tracking books, movies, and activities with Google Sheets integration",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "deploy": "node scripts/deploy.js",
+    "logs": "tail -f logs/*.log",
+    "clean-logs": "node scripts/clean-logs.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "activity-tracker",
+    "books",
+    "movies",
+    "productivity",
+    "google-sheets",
+    "habit-tracker"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/activity-tracker-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/activity-tracker-bot/issues"
+  },
+  "homepage": "https://github.com/yourusername/activity-tracker-bot#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "googleapis": "^126.0.1",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "@types/node": "^20.10.5"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverage": true,
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["text", "lcov", "html"],
+    "testMatch": [
+      "**/tests/**/*.test.js",
+      "**/tests/**/*.spec.js"
+    ]
+  },
+  "eslintConfig": {
+    "env": {
+      "node": true,
+      "es2021": true,
+      "jest": true
+    },
+    "extends": "eslint:recommended",
+    "parserOptions": {
+      "ecmaVersion": "latest",
+      "sourceType": "module"
+    },
+    "rules": {
+      "no-console": "off",
+      "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+      "prefer-const": "error",
+      "no-var": "error"
+    }
+  },
+  "nodemonConfig": {
+    "watch": [
+      "."
+    ],
+    "ext": "js,json",
+    "ignore": [
+      "node_modules/",
+      "logs/",
+      "coverage/",
+      "*.test.js"
+    ],
+    "env": {
+      "NODE_ENV": "development"
+    }
+  }
+}

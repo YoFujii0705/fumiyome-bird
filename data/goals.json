@@ -1,0 +1,16 @@
+{
+  "406748284942548992": {
+    "weekly": {
+      "books": 1,
+      "movies": 2,
+      "activities": 1,
+      "reports": 5
+    },
+    "monthly": {
+      "books": 4,
+      "movies": 8,
+      "activities": 4,
+      "reports": 20
+    }
+  }
+}

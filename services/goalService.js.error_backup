@@ -1,0 +1,678 @@
+const GoogleSheetsService = require('./googleSheets');
+const { getWeekStart, getMonthStart, isThisWeek, isThisMonth } = require('../utils/dateUtils');
+
+/**
+ * 目標管理サービス
+ * ユーザーの個人目標の設定・管理・進捗追跡を行う
+ */
+class GoalService {
+  constructor() {
+    this.sheetsService = GoogleSheetsService;
+    this.GOALS_SHEET = 'Goals';
+    this.PROGRESS_SHEET = 'Progress';
+    
+    // デフォルト目標値
+    this.defaultGoals = {
+      weekly: { books: 2, movies: 3, activities: 5, reports: 7 },
+      monthly: { books: 8, movies: 12, activities: 20, reports: 28 }
+    };
+  }
+
+  /**
+   * ユーザーの目標を取得
+   */
+  async getGoals(userId) {
+    try {
+      const data = await this.sheetsService.getData(`${this.GOALS_SHEET}!A:Z`);
+      const userRow = data.find(row => row[0] === userId);
+      
+      if (!userRow) {
+        // 初回の場合はデフォルト目標を返す
+        return {
+          weekly: {},
+          monthly: {}
+        };
+      }
+
+      // データを解析
+      const goals = {
+        weekly: {},
+        monthly: {}
+      };
+
+      // 週次目標 (列2-5: books, movies, activities, reports)
+      if (userRow[1]) goals.weekly.books = parseInt(userRow[1]) || 0;
+      if (userRow[2]) goals.weekly.movies = parseInt(userRow[2]) || 0;
+      if (userRow[3]) goals.weekly.activities = parseInt(userRow[3]) || 0;
+      if (userRow[4]) goals.weekly.reports = parseInt(userRow[4]) || 0;
+
+      // 月次目標 (列6-9: books, movies, activities, reports)
+      if (userRow[5]) goals.monthly.books = parseInt(userRow[5]) || 0;
+      if (userRow[6]) goals.monthly.movies = parseInt(userRow[6]) || 0;
+      if (userRow[7]) goals.monthly.activities = parseInt(userRow[7]) || 0;
+      if (userRow[8]) goals.monthly.reports = parseInt(userRow[8]) || 0;
+
+      return goals;
+    } catch (error) {
+      console.error('目標取得エラー:', error);
+      return { weekly: {}, monthly: {} };
+    }
+  }
+
+  /**
+   * 個別目標を設定
+   */
+  async setGoal(userId, period, category, target) {
+    try {
+      await this.ensureUserExists(userId);
+      
+      const columnMap = {
+        weekly: { books: 1, movies: 2, activities: 3, reports: 4 },
+        monthly: { books: 5, movies: 6, activities: 7, reports: 8 }
+      };
+
+      const column = columnMap[period][category];
+      if (!column) {
+        throw new Error(`無効な期間またはカテゴリ: ${period}, ${category}`);
+      }
+
+      const rowIndex = await this.getUserRowIndex(userId);
+      const cellRange = `${this.GOALS_SHEET}!${this.getColumnLetter(column)}${rowIndex}`;
+      
+      await this.sheetsService.updateData(cellRange, [target]);
+      
+      // 更新タイムスタンプも記録
+      const timestampColumn = this.getColumnLetter(9); // J列
+      const timestampRange = `${this.GOALS_SHEET}!${timestampColumn}${rowIndex}`;
+      await this.sheetsService.updateData(timestampRange, [new Date().toISOString()]);
+
+      console.log(`目標設定完了: ${userId}, ${period}, ${category}, ${target}`);
+    } catch (error) {
+      console.error('目標設定エラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * プリセットから目標を一括設定
+   */
+  async setGoalsFromPreset(userId, presetData) {
+    try {
+      await this.ensureUserExists(userId);
+      const rowIndex = await this.getUserRowIndex(userId);
+
+      // 一括更新用のデータを準備
+      const values = [
+        presetData.weekly.books || 0,      // B列
+        presetData.weekly.movies || 0,     // C列
+        presetData.weekly.activities || 0, // D列
+        presetData.weekly.reports || 0,    // E列
+        presetData.monthly.books || 0,     // F列
+        presetData.monthly.movies || 0,    // G列
+        presetData.monthly.activities || 0,// H列
+        presetData.monthly.reports || 0,   // I列
+        new Date().toISOString()           // J列 (タイムスタンプ)
+      ];
+
+      const range = `${this.GOALS_SHEET}!B${rowIndex}:J${rowIndex}`;
+      await this.sheetsService.updateData(range, values);
+
+      console.log(`プリセット設定完了: ${userId}`);
+    } catch (error) {
+      console.error('プリセット設定エラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 期間別目標リセット
+   */
+  async resetGoals(userId, period) {
+    try {
+      await this.ensureUserExists(userId);
+      const rowIndex = await this.getUserRowIndex(userId);
+
+      let range, values;
+      
+      if (period === 'weekly') {
+        range = `${this.GOALS_SHEET}!B${rowIndex}:E${rowIndex}`;
+        values = [0, 0, 0, 0];
+      } else if (period === 'monthly') {
+        range = `${this.GOALS_SHEET}!F${rowIndex}:I${rowIndex}`;
+        values = [0, 0, 0, 0];
+      }
+
+      await this.sheetsService.updateData(range, values);
+      
+      // タイムスタンプ更新
+      const timestampRange = `${this.GOALS_SHEET}!J${rowIndex}`;
+      await this.sheetsService.updateData(timestampRange, [new Date().toISOString()]);
+
+      console.log(`目標リセット完了: ${userId}, ${period}`);
+    } catch (error) {
+      console.error('目標リセットエラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 全目標リセット
+   */
+  async resetAllGoals(userId) {
+    try {
+      await this.ensureUserExists(userId);
+      const rowIndex = await this.getUserRowIndex(userId);
+
+      const range = `${this.GOALS_SHEET}!B${rowIndex}:J${rowIndex}`;
+      const values = [0, 0, 0, 0, 0, 0, 0, 0, new Date().toISOString()];
+
+      await this.sheetsService.updateData(range, values);
+      console.log(`全目標リセット完了: ${userId}`);
+    } catch (error) {
+      console.error('全目標リセットエラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 現在の進捗を取得
+   */
+  async getCurrentProgress(userId) {
+    try {
+      const now = new Date();
+      const weekStart = getWeekStart(now);
+      const monthStart = getMonthStart(now);
+
+      // 各シートから実績データを取得
+      const booksData = await this.getCompletionCounts(userId, 'books_master', weekStart, monthStart);
+      const moviesData = await this.getCompletionCounts(userId, 'movies_master', weekStart, monthStart);
+      const activitiesData = await this.getCompletionCounts(userId, 'activities_master', weekStart, monthStart);
+      const reportsData = await this.getReportCounts(userId, weekStart, monthStart);
+
+      return {
+        weekly: {
+          books: booksData.weekly,
+          movies: moviesData.weekly,
+          activities: activitiesData.weekly,
+          reports: reportsData.weekly
+        },
+        monthly: {
+          books: booksData.monthly,
+          movies: moviesData.monthly,
+          activities: activitiesData.monthly,
+          reports: reportsData.monthly
+        }
+      };
+    } catch (error) {
+      console.error('進捗取得エラー:', error);
+      return {
+        weekly: { books: 0, movies: 0, activities: 0, reports: 0 },
+        monthly: { books: 0, movies: 0, activities: 0, reports: 0 }
+      };
+    }
+  }
+
+  /**
+   * 詳細な進捗分析を取得
+   */
+  async getProgressAnalysis(userId) {
+    try {
+      const now = new Date();
+      const goals = await this.getGoals(userId);
+      const currentProgress = await this.getCurrentProgress(userId);
+
+      // 今日の実績
+      const todayProgress = await this.getTodayProgress(userId);
+
+      // 過去のトレンド分析
+      const weeklyTrends = await this.getWeeklyTrends(userId);
+      const monthlyTrends = await this.getMonthlyTrends(userId);
+
+      // 継続ストリーク計算
+      const streak = await this.calculateStreak(userId);
+
+      // 予測分析
+      const predictions = await this.calculatePredictions(userId, goals, currentProgress);
+
+      return {
+        today: todayProgress,
+        weekly: {
+          trends: weeklyTrends,
+          predictions: predictions.weekly
+        },
+        monthly: {
+          trends: monthlyTrends,
+          predictions: predictions.monthly
+        },
+        streak: streak,
+        lastUpdated: now.toISOString()
+      };
+    } catch (error) {
+      console.error('進捗分析エラー:', error);
+      return {
+        today: {},
+        weekly: { trends: {}, predictions: {} },
+        monthly: { trends: {}, predictions: {} },
+        streak: 0,
+        lastUpdated: new Date().toISOString()
+      };
+    }
+  }
+
+  /**
+   * 本・映画・活動の完了数を取得
+   */
+  async getCompletionCounts(userId, sheetName, weekStart, monthStart) {
+    try {
+      const data = await this.sheetsService.getData(`${sheetName}!A:Z`);
+      if (!data || data.length === 0) return { weekly: 0, monthly: 0 };
+
+      const userRows = data.filter(row => row[0] === userId);
+      let weeklyCount = 0;
+      let monthlyCount = 0;
+
+      userRows.forEach(row => {
+        const completedAt = row[5]; // F列: completed_at
+        if (!completedAt) return;
+
+        const completedDate = new Date(completedAt);
+        if (isNaN(completedDate.getTime())) return;
+
+        if (completedDate >= weekStart) weeklyCount++;
+        if (completedDate >= monthStart) monthlyCount++;
+      });
+
+      return { weekly: weeklyCount, monthly: monthlyCount };
+    } catch (error) {
+      console.error(`${sheetName}完了数取得エラー:`, error);
+      return { weekly: 0, monthly: 0 };
+    }
+  }
+
+  /**
+   * レポート数を取得
+   */
+  async getReportCounts(userId, weekStart, monthStart) {
+    try {
+      const data = await this.sheetsService.getData('daily_reports!A:Z');
+      if (!data || data.length === 0) return { weekly: 0, monthly: 0 };
+
+      const userRows = data.filter(row => row[0] === userId);
+      let weeklyCount = 0;
+      let monthlyCount = 0;
+
+      userRows.forEach(row => {
+        const createdAt = row[4]; // E列: created_at
+        if (!createdAt) return;
+
+        const createdDate = new Date(createdAt);
+        if (isNaN(createdDate.getTime())) return;
+
+        if (createdDate >= weekStart) weeklyCount++;
+        if (createdDate >= monthStart) monthlyCount++;
+      });
+
+      return { weekly: weeklyCount, monthly: monthlyCount };
+    } catch (error) {
+      console.error('レポート数取得エラー:', error);
+      return { weekly: 0, monthly: 0 };
+    }
+  }
+
+  /**
+   * 今日の実績を取得
+   */
+  async getTodayProgress(userId) {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const progress = {
+        books: 0,
+        movies: 0,
+        activities: 0,
+        reports: 0
+      };
+
+      // 各カテゴリの今日の実績を取得
+      const sheets = ['Books', 'Movies', 'Activities'];
+      for (const sheet of sheets) {
+        const data = await this.sheetsService.getValues(sheet, 'A:Z');
+        if (!data) continue;
+
+        const category = sheet.toLowerCase();
+        const userRows = data.filter(row => row[0] === userId);
+        
+        userRows.forEach(row => {
+          const completedAt = row[5];
+          if (!completedAt) return;
+
+          const completedDate = new Date(completedAt);
+          if (completedDate >= today && completedDate < tomorrow) {
+            progress[category]++;
+          }
+        });
+      }
+
+      // レポートの今日の実績
+      const reportsData = await this.sheetsService.getValues('Reports', 'A:Z');
+      if (reportsData) {
+        const userReports = reportsData.filter(row => row[0] === userId);
+        userReports.forEach(row => {
+          const createdAt = row[4];
+          if (!createdAt) return;
+
+          const createdDate = new Date(createdAt);
+          if (createdDate >= today && createdDate < tomorrow) {
+            progress.reports++;
+          }
+        });
+      }
+
+      return progress;
+    } catch (error) {
+      console.error('今日の実績取得エラー:', error);
+      return { books: 0, movies: 0, activities: 0, reports: 0 };
+    }
+  }
+
+  /**
+   * 週次トレンドを取得
+   */
+  async getWeeklyTrends(userId) {
+    try {
+      const trends = {};
+      const weeks = 4; // 過去4週間
+      const weeklyData = [];
+
+      for (let i = 0; i < weeks; i++) {
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - (i * 7) - (weekStart.getDay() || 7) + 1);
+        weekStart.setHours(0, 0, 0, 0);
+        
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        weekEnd.setHours(23, 59, 59, 999);
+
+        const weekProgress = await this.getProgressForPeriod(userId, weekStart, weekEnd);
+        weeklyData.push(weekProgress);
+      }
+
+      // トレンド計算（直近2週間 vs 過去2週間）
+      const categories = ['books', 'movies', 'activities', 'reports'];
+      categories.forEach(category => {
+        const recent = (weeklyData[0][category] + weeklyData[1][category]) / 2;
+        const past = (weeklyData[2][category] + weeklyData[3][category]) / 2;
+        trends[category] = recent - past; // 正の値は上昇トレンド
+      });
+
+      return trends;
+    } catch (error) {
+      console.error('週次トレンド取得エラー:', error);
+      return {};
+    }
+  }
+
+  /**
+   * 月次トレンドを取得
+   */
+  async getMonthlyTrends(userId) {
+    try {
+      const trends = {};
+      const months = 3; // 過去3ヶ月
+      const monthlyData = [];
+
+      for (let i = 0; i < months; i++) {
+        const monthStart = new Date();
+        monthStart.setMonth(monthStart.getMonth() - i, 1);
+        monthStart.setHours(0, 0, 0, 0);
+        
+        const monthEnd = new Date(monthStart);
+        monthEnd.setMonth(monthEnd.getMonth() + 1, 0);
+        monthEnd.setHours(23, 59, 59, 999);
+
+        const monthProgress = await this.getProgressForPeriod(userId, monthStart, monthEnd);
+        monthlyData.push(monthProgress);
+      }
+
+      // トレンド計算
+      const categories = ['books', 'movies', 'activities', 'reports'];
+      categories.forEach(category => {
+        if (monthlyData.length >= 2) {
+          trends[category] = monthlyData[0][category] - monthlyData[1][category];
+        }
+      });
+
+      return trends;
+    } catch (error) {
+      console.error('月次トレンド取得エラー:', error);
+      return {};
+    }
+  }
+
+  /**
+   * 指定期間の進捗を取得
+   */
+  async getProgressForPeriod(userId, startDate, endDate) {
+    try {
+      const progress = { books: 0, movies: 0, activities: 0, reports: 0 };
+
+      // 各カテゴリのデータを取得
+      const sheets = ['Books', 'Movies', 'Activities'];
+      for (const sheet of sheets) {
+        const data = await this.sheetsService.getValues(sheet, 'A:Z');
+        if (!data) continue;
+
+        const category = sheet.toLowerCase();
+        const userRows = data.filter(row => row[0] === userId);
+        
+        userRows.forEach(row => {
+          const completedAt = row[5];
+          if (!completedAt) return;
+
+          const completedDate = new Date(completedAt);
+          if (completedDate >= startDate && completedDate <= endDate) {
+            progress[category]++;
+          }
+        });
+      }
+
+      // レポートデータ
+      const reportsData = await this.sheetsService.getValues('Reports', 'A:Z');
+      if (reportsData) {
+        const userReports = reportsData.filter(row => row[0] === userId);
+        userReports.forEach(row => {
+          const createdAt = row[4];
+          if (!createdAt) return;
+
+          const createdDate = new Date(createdAt);
+          if (createdDate >= startDate && createdDate <= endDate) {
+            progress.reports++;
+          }
+        });
+      }
+
+      return progress;
+    } catch (error) {
+      console.error('期間進捗取得エラー:', error);
+      return { books: 0, movies: 0, activities: 0, reports: 0 };
+    }
+  }
+
+  /**
+   * 継続ストリークを計算
+   */
+  async calculateStreak(userId) {
+    try {
+      let streak = 0;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // 過去30日間をチェック
+      for (let i = 0; i < 30; i++) {
+        const checkDate = new Date(today);
+        checkDate.setDate(checkDate.getDate() - i);
+        
+        const nextDay = new Date(checkDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+
+        const dayProgress = await this.getProgressForPeriod(userId, checkDate, nextDay);
+        const totalActivity = Object.values(dayProgress).reduce((sum, count) => sum + count, 0);
+
+        if (totalActivity > 0) {
+          streak++;
+        } else if (i === 0) {
+          // 今日活動がない場合、昨日から数える
+          continue;
+        } else {
+          // 活動がない日があったらストリーク終了
+          break;
+        }
+      }
+
+      return streak;
+    } catch (error) {
+      console.error('ストリーク計算エラー:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * 目標達成予測を計算
+   */
+  async calculatePredictions(userId, goals, currentProgress) {
+    try {
+      const now = new Date();
+      const predictions = { weekly: {}, monthly: {} };
+
+      // 週次予測
+      const weekStart = getWeekStart(now);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      const daysPassedInWeek = Math.floor((now - weekStart) / (1000 * 60 * 60 * 24)) + 1;
+      const daysRemainingInWeek = 7 - daysPassedInWeek;
+
+      Object.entries(goals.weekly || {}).forEach(([category, target]) => {
+        const current = currentProgress.weekly[category] || 0;
+        const dailyRate = current / daysPassedInWeek;
+        const predicted = Math.round(current + (dailyRate * daysRemainingInWeek));
+        const achievable = predicted >= target;
+        
+        predictions.weekly[category] = {
+          predicted,
+          achievable,
+          needed: Math.max(0, target - current),
+          dailyNeed: daysRemainingInWeek > 0 ? Math.ceil((target - current) / daysRemainingInWeek) : 0
+        };
+      });
+
+      // 月次予測
+      const monthStart = getMonthStart(now);
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const daysPassedInMonth = now.getDate();
+      const daysRemainingInMonth = daysInMonth - daysPassedInMonth;
+
+      Object.entries(goals.monthly || {}).forEach(([category, target]) => {
+        const current = currentProgress.monthly[category] || 0;
+        const dailyRate = current / daysPassedInMonth;
+        const predicted = Math.round(current + (dailyRate * daysRemainingInMonth));
+        const achievable = predicted >= target;
+        
+        predictions.monthly[category] = {
+          predicted,
+          achievable,
+          needed: Math.max(0, target - current),
+          dailyNeed: daysRemainingInMonth > 0 ? Math.ceil((target - current) / daysRemainingInMonth) : 0
+        };
+      });
+
+      return predictions;
+    } catch (error) {
+      console.error('予測計算エラー:', error);
+      return { weekly: {}, monthly: {} };
+    }
+  }
+
+  /**
+   * ユーザー存在確認・作成
+   */
+  async ensureUserExists(userId) {
+    try {
+      const data = await this.sheetsService.getData(`${this.GOALS_SHEET}!A:A`);
+      const userExists = data && data.some(row => row[0] === userId);
+      
+      if (!userExists) {
+        // ヘッダー行を確認・作成
+        await this.ensureHeaderExists();
+        
+        // ユーザー行を追加
+        const newRow = [
+          userId, // A列: user_id
+          0, 0, 0, 0, // B-E列: 週次目標
+          0, 0, 0, 0, // F-I列: 月次目標
+          new Date().toISOString() // J列: created_at
+        ];
+        
+        await this.sheetsService.appendData(`${this.GOALS_SHEET}!A:J`, newRow);
+        console.log(`新規ユーザー作成: ${userId}`);
+      }
+    } catch (error) {
+      console.error('ユーザー確認エラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ヘッダー行の確認・作成
+   */
+  async ensureHeaderExists() {
+    try {
+      const data = await this.sheetsService.getData(`${this.GOALS_SHEET}!A1:J1`);
+      
+      if (!data || data.length === 0 || !data[0] || data[0][0] !== 'user_id') {
+        const headers = [
+          'user_id',
+          'weekly_books', 'weekly_movies', 'weekly_activities', 'weekly_reports',
+          'monthly_books', 'monthly_movies', 'monthly_activities', 'monthly_reports',
+          'updated_at'
+        ];
+        
+        await this.sheetsService.updateData(`${this.GOALS_SHEET}!A1:J1`, headers);
+        console.log('ヘッダー行を作成しました');
+      }
+    } catch (error) {
+      console.error('ヘッダー確認エラー:', error);
+      // ヘッダーエラーは無視して続行
+    }
+  }
+
+  /**
+   * ユーザーの行インデックスを取得
+   */
+  async getUserRowIndex(userId) {
+    try {
+      const data = await this.sheetsService.getData(`${this.GOALS_SHEET}!A:A`);
+      if (!data) throw new Error('シートデータが取得できません');
+      
+      const rowIndex = data.findIndex(row => row[0] === userId);
+      if (rowIndex === -1) throw new Error('ユーザーが見つかりません');
+      
+      return rowIndex + 1; // スプレッドシートは1から始まる
+    } catch (error) {
+      console.error('行インデックス取得エラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 列番号を文字に変換
+   */
+  getColumnLetter(columnNumber) {
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    return letters[columnNumber];
+  }
+}
+
+module.exports = new GoalService();
