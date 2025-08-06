@@ -82,416 +82,391 @@ class GoalsHandler {
     }
   }
 
+ /**
+ * 現在の目標設定を表示
+ */
+async handleShow(interaction) {
+  console.log('[DEBUG] handleShow 実行');
+
+  try {
+    // 最初に応答を遅延させる - 統計取得に時間がかかるため
+    await interaction.deferReply();
+
+    const userId = interaction.user.id;
+    const goals = await goalService.getGoals(userId);
+    const currentStats = await goalService.getCurrentProgress(userId);
+
+    const embed = new EmbedBuilder()
+      .setColor('#3498db')
+      .setTitle('🎯 現在の目標設定')
+      .setDescription('あなたの目標設定と今期の進捗状況です')
+      .setTimestamp();
+
+    // 週次目標
+    if (goals.weekly && Object.keys(goals.weekly).length > 0) {
+      const weeklyText = this.formatGoalSection('weekly', goals.weekly, currentStats.weekly);
+      embed.addFields({
+        name: '📅 週次目標 (今週)',
+        value: weeklyText,
+        inline: false
+      });
+    }
+
+    // 月次目標
+    if (goals.monthly && Object.keys(goals.monthly).length > 0) {
+      const monthlyText = this.formatGoalSection('monthly', goals.monthly, currentStats.monthly);
+      embed.addFields({
+        name: '🗓️ 月次目標 (今月)',
+        value: monthlyText,
+        inline: false
+      });
+    }
+
+    // 目標が設定されていない場合
+    if ((!goals.weekly || Object.keys(goals.weekly).length === 0) && 
+        (!goals.monthly || Object.keys(goals.monthly).length === 0)) {
+      embed.setDescription('まだ目標が設定されていません。\n`/goals quick` でクイック設定するか、`/goals set` で個別に設定してください。');
+      embed.setColor('#95a5a6');
+    }
+
+    // アクションボタン
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('goals_quick_setup')
+          .setLabel('⚡ クイック設定')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('goals_detailed_progress')
+          .setLabel('📊 詳細進捗')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('goals_reset')
+          .setLabel('🔄 リセット')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+    // editReplyで応答
+    return await interaction.editReply({ embeds: [embed], components: [row] });
+
+  } catch (error) {
+    console.error('目標表示エラー:', error);
+    const embed = createErrorEmbed(
+      '❌ 表示エラー',
+      '目標の取得中にエラーが発生しました。'
+    );
+    
+    // エラーハンドリングでもeditReplyを使用
+    return await interaction.editReply({ embeds: [embed] });
+  }
+}
+
   /**
-   * 現在の目標設定を表示
-   */
-  async handleShow(interaction) {
-    console.log('[DEBUG] handleShow 実行');
+ * 個別目標設定
+ */
+async handleSet(interaction) {
+  console.log('[DEBUG] handleSet 実行');
 
-    try {
-      const userId = interaction.user.id;
-      const goals = await goalService.getGoals(userId);
-      const currentStats = await goalService.getCurrentProgress(userId);
+  try {
+    // 最初に応答を遅延させる
+    await interaction.deferReply();
+    
+    // パラメータを最初に取得
+    const userId = interaction.user.id;
+    const period = interaction.options.getString('period');
+    const category = interaction.options.getString('category');
+    const target = interaction.options.getInteger('target');
 
-      const embed = new EmbedBuilder()
-        .setColor('#3498db')
-        .setTitle('🎯 現在の目標設定')
-        .setDescription('あなたの目標設定と今期の進捗状況です')
-        .setTimestamp();
+    console.log(`[DEBUG] 設定内容: ${period}, ${category}, ${target}`);
 
-      // 週次目標
-      if (goals.weekly && Object.keys(goals.weekly).length > 0) {
-        const weeklyText = this.formatGoalSection('weekly', goals.weekly, currentStats.weekly);
-        embed.addFields({
-          name: '📅 週次目標 (今週)',
-          value: weeklyText,
-          inline: false
-        });
-      }
+    // 目標を設定
+    await goalService.setGoal(userId, period, category, target);
 
-      // 月次目標
-      if (goals.monthly && Object.keys(goals.monthly).length > 0) {
-        const monthlyText = this.formatGoalSection('monthly', goals.monthly, currentStats.monthly);
-        embed.addFields({
-          name: '🗓️ 月次目標 (今月)',
-          value: monthlyText,
-          inline: false
-        });
-      }
+    const emoji = this.categoryEmojis[category];
+    const categoryName = this.categoryNames[category];
+    const periodName = period === 'weekly' ? '週次' : '月次';
 
-      // 目標が設定されていない場合
-      if ((!goals.weekly || Object.keys(goals.weekly).length === 0) && 
-          (!goals.monthly || Object.keys(goals.monthly).length === 0)) {
-        embed.setDescription('まだ目標が設定されていません。\n`/goals quick` でクイック設定するか、`/goals set` で個別に設定してください。');
-        embed.setColor('#95a5a6');
-      }
+    const embed = createSuccessEmbed(
+      '✅ 目標を設定しました',
+      `${emoji} **${categoryName}** の${periodName}目標を **${target}** に設定しました。\n\n頑張って達成しましょう！ 💪`
+    );
 
-      // アクションボタン
-      const row = new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId('goals_quick_setup')
-            .setLabel('⚡ クイック設定')
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId('goals_detailed_progress')
-            .setLabel('📊 詳細進捗')
-            .setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder()
-            .setCustomId('goals_reset')
-            .setLabel('🔄 リセット')
-            .setStyle(ButtonStyle.Danger)
-        );
+    // 現在の進捗を取得して表示
+    const currentStats = await goalService.getCurrentProgress(userId);
+    const current = period === 'weekly' ? currentStats.weekly[category] || 0 : currentStats.monthly[category] || 0;
+    const percentage = Math.min(Math.round((current / target) * 100), 100);
+    const progressBar = getProgressBar(percentage);
 
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed], components: [row] });
-      } else {
-        return await interaction.reply({ embeds: [embed], components: [row] });
-      }
+    embed.addFields({
+      name: '📊 現在の進捗',
+      value: `${progressBar} **${current}/${target}** (${percentage}%)`,
+      inline: false
+    });
 
-    } catch (error) {
-      console.error('目標表示エラー:', error);
-      const embed = createErrorEmbed(
-        '❌ 表示エラー',
-        '目標の取得中にエラーが発生しました。'
+    // 励ましメッセージ
+    if (percentage >= 100) {
+      embed.addFields({
+        name: '🎉 すでに達成済み！',
+        value: '素晴らしい成果です！さらなる目標に挑戦してみませんか？',
+        inline: false
+      });
+    } else if (percentage >= 75) {
+      embed.addFields({
+        name: '🔥 あと少し！',
+        value: 'ゴールまでもう少しです。最後まで頑張りましょう！',
+        inline: false
+      });
+    } else if (percentage >= 50) {
+      embed.addFields({
+        name: '📈 順調です',
+        value: '半分を超えました！この調子で続けましょう。',
+        inline: false
+      });
+    }
+
+    // editReplyで応答を送信
+    return await interaction.editReply({ embeds: [embed] });
+
+  } catch (error) {
+    console.error('目標設定エラー:', error);
+    const embed = createErrorEmbed(
+      '❌ 設定エラー',
+      '目標の設定中にエラーが発生しました。'
+    );
+    
+    // エラーハンドリングでもeditReplyを使用
+    return await interaction.editReply({ embeds: [embed] });
+  }
+}
+  /**
+ * 目標リセット
+ */
+async handleReset(interaction) {
+  console.log('[DEBUG] handleReset 実行');
+
+  try {
+    // 最初に応答を遅延させる
+    await interaction.deferReply();
+
+    const userId = interaction.user.id;
+    const period = interaction.options.getString('period') || 'all';
+
+    if (period === 'all') {
+      await goalService.resetAllGoals(userId);
+      var message = '全ての目標をリセットしました。';
+    } else {
+      await goalService.resetGoals(userId, period);
+      const periodName = period === 'weekly' ? '週次' : '月次';
+      var message = `${periodName}目標をリセットしました。`;
+    }
+
+    const embed = createSuccessEmbed(
+      '🔄 目標をリセットしました',
+      `${message}\n\n新しい目標を設定して、再スタートしましょう！`
+    );
+
+    // クイック設定のボタンを追加
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('goals_quick_setup')
+          .setLabel('⚡ クイック設定')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId('goals_custom_setup')
+          .setLabel('⚙️ 個別設定')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+    return await interaction.editReply({ embeds: [embed], components: [row] });
+
+  } catch (error) {
+    console.error('目標リセットエラー:', error);
+    const embed = createErrorEmbed(
+      '❌ リセットエラー',
+      '目標のリセット中にエラーが発生しました。'
+    );
+    
+    return await interaction.editReply({ embeds: [embed] });
+  }
+}
+
+  /**
+ * クイック設定（プリセット）
+ */
+async handleQuick(interaction) {
+  console.log('[DEBUG] handleQuick 実行');
+
+  try {
+    // 最初に応答を遅延させる
+    await interaction.deferReply();
+
+    const userId = interaction.user.id;
+    const preset = interaction.options.getString('preset');
+
+    console.log(`[DEBUG] 選択されたプリセット: ${preset}`);
+
+    if (!this.presets[preset]) {
+      throw new Error(`無効なプリセット: ${preset}`);
+    }
+
+    const presetData = this.presets[preset];
+    
+    // プリセットの目標を一括設定
+    await goalService.setGoalsFromPreset(userId, presetData);
+
+    const presetNames = {
+      beginner: '🌱 初心者向け',
+      standard: '📈 標準',
+      challenge: '🔥 チャレンジ',
+      expert: '🏆 エキスパート'
+    };
+
+    const embed = createSuccessEmbed(
+      '⚡ クイック設定完了！',
+      `**${presetNames[preset]}** プリセットで目標を設定しました。`
+    );
+
+    // 設定された目標の詳細表示
+    const weeklyDetails = Object.entries(presetData.weekly)
+      .map(([category, target]) => `${this.categoryEmojis[category]} ${this.categoryNames[category]}: ${target}`)
+      .join('\n');
+
+    const monthlyDetails = Object.entries(presetData.monthly)
+      .map(([category, target]) => `${this.categoryEmojis[category]} ${this.categoryNames[category]}: ${target}`)
+      .join('\n');
+
+    embed.addFields(
+      { name: '📅 週次目標', value: weeklyDetails, inline: true },
+      { name: '🗓️ 月次目標', value: monthlyDetails, inline: true },
+      { name: '\u200B', value: '\u200B', inline: false },
+      { name: '💡 ヒント', value: '`/goals progress` で詳細な進捗を確認できます！', inline: false }
+    );
+
+    // 現在の進捗も表示
+    const currentStats = await goalService.getCurrentProgress(userId);
+    const progressText = this.formatQuickProgressOverview(presetData, currentStats);
+    
+    if (progressText) {
+      embed.addFields({
+        name: '📊 現在の進捗概要',
+        value: progressText,
+        inline: false
+      });
+    }
+
+    return await interaction.editReply({ embeds: [embed] });
+
+  } catch (error) {
+    console.error('クイック設定エラー:', error);
+    const embed = createErrorEmbed(
+      '❌ 設定エラー',
+      'クイック設定中にエラーが発生しました。'
+    );
+    
+    return await interaction.editReply({ embeds: [embed] });
+  }
+}
+
+  /**
+ * 詳細進捗表示
+ */
+async handleProgress(interaction) {
+  console.log('[DEBUG] handleProgress 実行');
+
+  try {
+    // 最初に応答を遅延させる - 進捗分析に時間がかかるため
+    await interaction.deferReply();
+
+    const userId = interaction.user.id;
+    const goals = await goalService.getGoals(userId);
+    const currentStats = await goalService.getCurrentProgress(userId);
+    const progressAnalysis = await goalService.getProgressAnalysis(userId);
+
+    if ((!goals.weekly || Object.keys(goals.weekly).length === 0) && 
+        (!goals.monthly || Object.keys(goals.monthly).length === 0)) {
+      const embed = createInfoEmbed(
+        '📊 進捗表示',
+        'まだ目標が設定されていません。\n`/goals quick` でクイック設定してから進捗を確認してください。'
       );
       
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed] });
-      } else {
-        return await interaction.reply({ embeds: [embed], ephemeral: true });
-      }
+      return await interaction.editReply({ embeds: [embed] });
     }
-  }
 
-  /**
-   * 個別目標設定
-   */
-  async handleSet(interaction) {
-    console.log('[DEBUG] handleSet 実行');
+    const embed = new EmbedBuilder()
+      .setColor('#2ecc71')
+      .setTitle('📊 目標達成進捗 - 詳細分析')
+      .setDescription('あなたの目標達成状況を詳しく分析します')
+      .setTimestamp();
 
-    try {
-      const userId = interaction.user.id;
-      const period = interaction.options.getString('period');
-      const category = interaction.options.getString('category');
-      const target = interaction.options.getInteger('target');
-
-      console.log(`[DEBUG] 設定内容: ${period}, ${category}, ${target}`);
-
-      // 目標を設定
-      await goalService.setGoal(userId, period, category, target);
-
-      const emoji = this.categoryEmojis[category];
-      const categoryName = this.categoryNames[category];
-      const periodName = period === 'weekly' ? '週次' : '月次';
-
-      const embed = createSuccessEmbed(
-        '✅ 目標を設定しました',
-        `${emoji} **${categoryName}** の${periodName}目標を **${target}** に設定しました。\n\n頑張って達成しましょう！ 💪`
-      );
-
-      // 現在の進捗を取得して表示
-      const currentStats = await goalService.getCurrentProgress(userId);
-      const current = period === 'weekly' ? currentStats.weekly[category] || 0 : currentStats.monthly[category] || 0;
-      const percentage = Math.min(Math.round((current / target) * 100), 100);
-      const progressBar = getProgressBar(percentage);
-
+    // 週次進捗
+    if (goals.weekly && Object.keys(goals.weekly).length > 0) {
+      const weeklyAnalysis = this.analyzeProgress('weekly', goals.weekly, currentStats.weekly, progressAnalysis.weekly);
       embed.addFields({
-        name: '📊 現在の進捗',
-        value: `${progressBar} **${current}/${target}** (${percentage}%)`,
+        name: '📅 週次目標 - 今週の進捗',
+        value: weeklyAnalysis.summary,
         inline: false
       });
 
-      // 励ましメッセージ
-      if (percentage >= 100) {
+      if (weeklyAnalysis.details) {
         embed.addFields({
-          name: '🎉 すでに達成済み！',
-          value: '素晴らしい成果です！さらなる目標に挑戦してみませんか？',
+          name: '📈 詳細分析 (週次)',
+          value: weeklyAnalysis.details,
           inline: false
         });
-      } else if (percentage >= 75) {
-        embed.addFields({
-          name: '🔥 あと少し！',
-          value: 'ゴールまでもう少しです。最後まで頑張りましょう！',
-          inline: false
-        });
-      } else if (percentage >= 50) {
-        embed.addFields({
-          name: '📈 順調です',
-          value: '半分を超えました！この調子で続けましょう。',
-          inline: false
-        });
-      }
-
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed] });
-      } else {
-        return await interaction.reply({ embeds: [embed] });
-      }
-
-    } catch (error) {
-      console.error('目標設定エラー:', error);
-      const embed = createErrorEmbed(
-        '❌ 設定エラー',
-        '目標の設定中にエラーが発生しました。'
-      );
-      
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed] });
-      } else {
-        return await interaction.reply({ embeds: [embed], ephemeral: true });
       }
     }
-  }
 
-  /**
-   * 目標リセット
-   */
-  async handleReset(interaction) {
-    console.log('[DEBUG] handleReset 実行');
+    // 月次進捗
+    if (goals.monthly && Object.keys(goals.monthly).length > 0) {
+      const monthlyAnalysis = this.analyzeProgress('monthly', goals.monthly, currentStats.monthly, progressAnalysis.monthly);
+      embed.addFields({
+        name: '🗓️ 月次目標 - 今月の進捗',
+        value: monthlyAnalysis.summary,
+        inline: false
+      });
 
-    try {
-      const userId = interaction.user.id;
-      const period = interaction.options.getString('period') || 'all';
-
-      if (period === 'all') {
-        await goalService.resetAllGoals(userId);
-        var message = '全ての目標をリセットしました。';
-      } else {
-        await goalService.resetGoals(userId, period);
-        const periodName = period === 'weekly' ? '週次' : '月次';
-        var message = `${periodName}目標をリセットしました。`;
-      }
-
-      const embed = createSuccessEmbed(
-        '🔄 目標をリセットしました',
-        `${message}\n\n新しい目標を設定して、再スタートしましょう！`
-      );
-
-      // クイック設定のボタンを追加
-      const row = new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId('goals_quick_setup')
-            .setLabel('⚡ クイック設定')
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId('goals_custom_setup')
-            .setLabel('⚙️ 個別設定')
-            .setStyle(ButtonStyle.Secondary)
-        );
-
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed], components: [row] });
-      } else {
-        return await interaction.reply({ embeds: [embed], components: [row] });
-      }
-
-    } catch (error) {
-      console.error('目標リセットエラー:', error);
-      const embed = createErrorEmbed(
-        '❌ リセットエラー',
-        '目標のリセット中にエラーが発生しました。'
-      );
-      
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed] });
-      } else {
-        return await interaction.reply({ embeds: [embed], ephemeral: true });
+      if (monthlyAnalysis.details) {
+        embed.addFields({
+          name: '📈 詳細分析 (月次)',
+          value: monthlyAnalysis.details,
+          inline: false
+        });
       }
     }
-  }
 
-  /**
-   * クイック設定（プリセット）
-   */
-  async handleQuick(interaction) {
-    console.log('[DEBUG] handleQuick 実行');
-
-    try {
-      const userId = interaction.user.id;
-      const preset = interaction.options.getString('preset');
-
-      console.log(`[DEBUG] 選択されたプリセット: ${preset}`);
-
-      if (!this.presets[preset]) {
-        throw new Error(`無効なプリセット: ${preset}`);
-      }
-
-      const presetData = this.presets[preset];
-      
-      // プリセットの目標を一括設定
-      await goalService.setGoalsFromPreset(userId, presetData);
-
-      const presetNames = {
-        beginner: '🌱 初心者向け',
-        standard: '📈 標準',
-        challenge: '🔥 チャレンジ',
-        expert: '🏆 エキスパート'
-      };
-
-      const embed = createSuccessEmbed(
-        '⚡ クイック設定完了！',
-        `**${presetNames[preset]}** プリセットで目標を設定しました。`
-      );
-
-      // 設定された目標の詳細表示
-      const weeklyDetails = Object.entries(presetData.weekly)
-        .map(([category, target]) => `${this.categoryEmojis[category]} ${this.categoryNames[category]}: ${target}`)
-        .join('\n');
-
-      const monthlyDetails = Object.entries(presetData.monthly)
-        .map(([category, target]) => `${this.categoryEmojis[category]} ${this.categoryNames[category]}: ${target}`)
-        .join('\n');
-
-      embed.addFields(
-        { name: '📅 週次目標', value: weeklyDetails, inline: true },
-        { name: '🗓️ 月次目標', value: monthlyDetails, inline: true },
-        { name: '\u200B', value: '\u200B', inline: false },
-        { name: '💡 ヒント', value: '`/goals progress` で詳細な進捗を確認できます！', inline: false }
-      );
-
-      // 現在の進捗も表示
-      const currentStats = await goalService.getCurrentProgress(userId);
-      const progressText = this.formatQuickProgressOverview(presetData, currentStats);
-      
-      if (progressText) {
-        embed.addFields({
-          name: '📊 現在の進捗概要',
-          value: progressText,
-          inline: false
-        });
-      }
-
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed] });
-      } else {
-        return await interaction.reply({ embeds: [embed] });
-      }
-
-    } catch (error) {
-      console.error('クイック設定エラー:', error);
-      const embed = createErrorEmbed(
-        '❌ 設定エラー',
-        'クイック設定中にエラーが発生しました。'
-      );
-      
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed] });
-      } else {
-        return await interaction.reply({ embeds: [embed], ephemeral: true });
-      }
+    // 全体サマリー
+    const overallSummary = this.generateOverallSummary(goals, currentStats, progressAnalysis);
+    if (overallSummary) {
+      embed.addFields({
+        name: '🎯 全体サマリー',
+        value: overallSummary,
+        inline: false
+      });
     }
-  }
 
-  /**
-   * 詳細進捗表示
-   */
-  async handleProgress(interaction) {
-    console.log('[DEBUG] handleProgress 実行');
-
-    try {
-      const userId = interaction.user.id;
-      const goals = await goalService.getGoals(userId);
-      const currentStats = await goalService.getCurrentProgress(userId);
-      const progressAnalysis = await goalService.getProgressAnalysis(userId);
-
-      if ((!goals.weekly || Object.keys(goals.weekly).length === 0) && 
-          (!goals.monthly || Object.keys(goals.monthly).length === 0)) {
-        const embed = createInfoEmbed(
-          '📊 進捗表示',
-          'まだ目標が設定されていません。\n`/goals quick` でクイック設定してから進捗を確認してください。'
-        );
-        
-        if (interaction.deferred) {
-          return await interaction.editReply({ embeds: [embed] });
-        } else {
-          return await interaction.reply({ embeds: [embed] });
-        }
-      }
-
-      const embed = new EmbedBuilder()
-        .setColor('#2ecc71')
-        .setTitle('📊 目標達成進捗 - 詳細分析')
-        .setDescription('あなたの目標達成状況を詳しく分析します')
-        .setTimestamp();
-
-      // 週次進捗
-      if (goals.weekly && Object.keys(goals.weekly).length > 0) {
-        const weeklyAnalysis = this.analyzeProgress('weekly', goals.weekly, currentStats.weekly, progressAnalysis.weekly);
-        embed.addFields({
-          name: '📅 週次目標 - 今週の進捗',
-          value: weeklyAnalysis.summary,
-          inline: false
-        });
-
-        if (weeklyAnalysis.details) {
-          embed.addFields({
-            name: '📈 詳細分析 (週次)',
-            value: weeklyAnalysis.details,
-            inline: false
-          });
-        }
-      }
-
-      // 月次進捗
-      if (goals.monthly && Object.keys(goals.monthly).length > 0) {
-        const monthlyAnalysis = this.analyzeProgress('monthly', goals.monthly, currentStats.monthly, progressAnalysis.monthly);
-        embed.addFields({
-          name: '🗓️ 月次目標 - 今月の進捗',
-          value: monthlyAnalysis.summary,
-          inline: false
-        });
-
-        if (monthlyAnalysis.details) {
-          embed.addFields({
-            name: '📈 詳細分析 (月次)',
-            value: monthlyAnalysis.details,
-            inline: false
-          });
-        }
-      }
-
-      // 全体サマリー
-      const overallSummary = this.generateOverallSummary(goals, currentStats, progressAnalysis);
-      if (overallSummary) {
-        embed.addFields({
-          name: '🎯 全体サマリー',
-          value: overallSummary,
-          inline: false
-        });
-      }
-
-      // アドバイス
-      const advice = this.generateAdvice(goals, currentStats, progressAnalysis);
-      if (advice) {
-        embed.addFields({
-          name: '💡 アドバイス',
-          value: advice,
-          inline: false
-        });
-      }
-
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed] });
-      } else {
-        return await interaction.reply({ embeds: [embed] });
-      }
-
-    } catch (error) {
-      console.error('進捗表示エラー:', error);
-      const embed = createErrorEmbed(
-        '❌ 表示エラー',
-        '進捗の取得中にエラーが発生しました。'
-      );
-      
-      if (interaction.deferred) {
-        return await interaction.editReply({ embeds: [embed] });
-      } else {
-        return await interaction.reply({ embeds: [embed], ephemeral: true });
-      }
+    // アドバイス
+    const advice = this.generateAdvice(goals, currentStats, progressAnalysis);
+    if (advice) {
+      embed.addFields({
+        name: '💡 アドバイス',
+        value: advice,
+        inline: false
+      });
     }
+
+    return await interaction.editReply({ embeds: [embed] });
+
+  } catch (error) {
+    console.error('進捗表示エラー:', error);
+    const embed = createErrorEmbed(
+      '❌ 表示エラー',
+      '進捗の取得中にエラーが発生しました。'
+    );
+    
+    return await interaction.editReply({ embeds: [embed] });
   }
+}
 
   /**
    * 目標セクションのフォーマット
