@@ -11,8 +11,8 @@ class GoalsHandler {
   constructor() {
     this.presets = {
       beginner: {
-        weekly: { books: 1, movies: 2, activities: 3, reports: 5 },
-        monthly: { books: 4, movies: 8, activities: 12, reports: 20 }
+        weekly: { books: 1, movies: 2, activities: 1, reports: 5 },
+        monthly: { books: 4, movies: 8, activities: 4, reports: 20 }
       },
       standard: {
         weekly: { books: 2, movies: 3, activities: 5, reports: 7 },
