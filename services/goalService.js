@@ -186,153 +186,147 @@ class GoalService {
   }
 
 /**
-   * 現在の進捗を取得（修正版）
-   */
-  async getCurrentProgress(userId) {
-    try {
-      if (!this.googleSheets) {
-        console.warn('⚠️ GoogleSheetsService が設定されていません');
-        return {
-          weekly: { books: 0, movies: 0, activities: 0, reports: 0 },
-          monthly: { books: 0, movies: 0, activities: 0, reports: 0 }
-        };
-      }
-
-      console.log('📊 週次統計取得開始');
-      const weeklyStats = await this.googleSheets.getWeeklyStats();
-      console.log('📊 月次統計取得開始');
-      const monthlyStats = await this.googleSheets.getMonthlyStats();
-
-      // 安全なデータ抽出（undefined対策）
-      const weeklyProgress = {
-        books: weeklyStats?.finishedBooks || 0,
-        movies: weeklyStats?.watchedMovies || 0,
-        activities: weeklyStats?.completedActivities || 0,
-        reports: weeklyStats?.reports || 0
-      };
-
-      const monthlyProgress = {
-        books: monthlyStats?.finishedBooks || 0,
-        movies: monthlyStats?.watchedMovies || 0,
-        activities: monthlyStats?.completedActivities || 0,
-        reports: monthlyStats?.reports || 0
-      };
-
-      console.log('✅ 週次統計取得完了:', weeklyProgress);
-      console.log('✅ 月次統計取得完了:', monthlyProgress);
-
+ * 現在の進捗を取得（アニメ対応版）
+ */
+async getCurrentProgress(userId) {
+  try {
+    if (!this.googleSheets) {
+      console.warn('⚠️ GoogleSheetsService が設定されていません');
       return {
-        weekly: weeklyProgress,
-        monthly: monthlyProgress
-      };
-    } catch (error) {
-      console.error('❌ 進捗取得エラー:', error);
-      // エラー時はゼロデータを返す
-      return {
-        weekly: { books: 0, movies: 0, activities: 0, reports: 0 },
-        monthly: { books: 0, movies: 0, activities: 0, reports: 0 }
+        weekly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 },
+        monthly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 }
       };
     }
+
+    console.log('📊 週次統計取得開始（アニメ含む）');
+    const weeklyStats = await this.googleSheets.getWeeklyStats();
+    console.log('📊 月次統計取得開始（アニメ含む）');
+    const monthlyStats = await this.googleSheets.getMonthlyStats();
+
+    // 安全なデータ抽出（undefined対策・アニメ追加）
+    const weeklyProgress = {
+      books: weeklyStats?.finishedBooks || 0,
+      movies: weeklyStats?.watchedMovies || 0,
+      animes: weeklyStats?.completedAnimes || 0, // 🆕 アニメ追加
+      activities: weeklyStats?.completedActivities || 0,
+      reports: weeklyStats?.reports || 0
+    };
+
+    const monthlyProgress = {
+      books: monthlyStats?.finishedBooks || 0,
+      movies: monthlyStats?.watchedMovies || 0,
+      animes: monthlyStats?.completedAnimes || 0, // 🆕 アニメ追加
+      activities: monthlyStats?.completedActivities || 0,
+      reports: monthlyStats?.reports || 0
+    };
+
+    console.log('✅ 週次統計取得完了（アニメ含む）:', weeklyProgress);
+    console.log('✅ 月次統計取得完了（アニメ含む）:', monthlyProgress);
+
+    return {
+      weekly: weeklyProgress,
+      monthly: monthlyProgress
+    };
+  } catch (error) {
+    console.error('❌ 進捗取得エラー:', error);
+    // エラー時はゼロデータを返す（アニメ含む）
+    return {
+      weekly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 },
+      monthly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 }
+    };
   }
+}
 
   /**
-   * 進捗分析を取得（修正版）
-   */
-  async getProgressAnalysis(userId) {
-    try {
-      if (!this.googleSheets) {
-        console.warn('⚠️ GoogleSheetsService が設定されていません（進捗分析）');
-        return {
-          today: { books: 0, movies: 0, activities: 0 },
-          streak: 0,
-          weeklyProgress: 0,
-          momentum: 'stable'
-        };
-      }
-
-      console.log('📝 過去7日間のレポート取得開始');
-      const recentReports = await this.googleSheets.getRecentReports(7);
-      console.log(`✅ ${recentReports?.length || 0}件のレポートを取得しました`);
-
-      // recentReports が null や undefined の場合の対策
-      if (!recentReports || !Array.isArray(recentReports)) {
-        console.warn('⚠️ レポートデータが無効です');
-        return {
-          today: { books: 0, movies: 0, activities: 0 },
-          streak: 0,
-          weeklyProgress: 0,
-          momentum: 'stable'
-        };
-      }
-
-      // 今日の実績を計算（安全な日付処理）
-      const today = new Date().toISOString().slice(0, 10);
-      const todayReports = recentReports.filter(report => {
-        if (!report || !report.timestamp) return false;
-        
-        try {
-          // timestamp の詳細をログ出力（デバッグ用）
-          console.log('📊 レポートデータサンプル:', {
-            timestamp: report.timestamp,
-            timestampType: typeof report.timestamp,
-            isDate: report.timestamp instanceof Date,
-            category: report.category
-          });
-
-          let dateStr;
-          if (report.timestamp instanceof Date) {
-            dateStr = report.timestamp.toISOString().slice(0, 10);
-          } else if (typeof report.timestamp === 'string') {
-            if (report.timestamp.includes('T')) {
-              dateStr = report.timestamp.slice(0, 10);
-            } else {
-              dateStr = report.timestamp;
-            }
-          } else {
-            dateStr = new Date(report.timestamp).toISOString().slice(0, 10);
-          }
-          
-          return dateStr === today;
-        } catch (error) {
-          console.log('⚠️ 日付処理エラー:', report.timestamp, error);
-          return false;
-        }
-      });
-
-      const todayStats = {
-        books: todayReports.filter(r => r.category === 'book').length,
-        movies: todayReports.filter(r => r.category === 'movie').length,
-        activities: todayReports.filter(r => r.category === 'activity').length
-      };
-
-      console.log('🎯 今日の実績:', todayStats);
-
-      // ストリーク計算
-      const streak = this.calculateStreak(recentReports);
-      const weeklyProgress = await this.calculateWeeklyProgress(recentReports);
-      const momentum = this.calculateMomentum(recentReports);
-
-      const analysis = {
-        today: todayStats,
-        streak,
-        weeklyProgress,
-        momentum
-      };
-
-      console.log('📊 進捗分析結果:', analysis);
-      return analysis;
-
-    } catch (error) {
-      console.error('❌ 進捗分析エラー:', error);
+ * 進捗分析を取得（アニメ対応版）
+ */
+async getProgressAnalysis(userId) {
+  try {
+    if (!this.googleSheets) {
+      console.warn('⚠️ GoogleSheetsService が設定されていません（進捗分析）');
       return {
-        today: { books: 0, movies: 0, activities: 0 },
+        today: { books: 0, movies: 0, animes: 0, activities: 0 },
         streak: 0,
         weeklyProgress: 0,
         momentum: 'stable'
       };
     }
-  }
 
+    console.log('📝 過去7日間のレポート取得開始');
+    const recentReports = await this.googleSheets.getRecentReports(7);
+    console.log(`✅ ${recentReports?.length || 0}件のレポートを取得しました`);
+
+    // recentReports が null や undefined の場合の対策
+    if (!recentReports || !Array.isArray(recentReports)) {
+      console.warn('⚠️ レポートデータが無効です');
+      return {
+        today: { books: 0, movies: 0, animes: 0, activities: 0 },
+        streak: 0,
+        weeklyProgress: 0,
+        momentum: 'stable'
+      };
+    }
+
+    // 今日の実績を計算（安全な日付処理・アニメ追加）
+    const today = new Date().toISOString().slice(0, 10);
+    const todayReports = recentReports.filter(report => {
+      if (!report || !report.timestamp) return false;
+      
+      try {
+        let dateStr;
+        if (report.timestamp instanceof Date) {
+          dateStr = report.timestamp.toISOString().slice(0, 10);
+        } else if (typeof report.timestamp === 'string') {
+          if (report.timestamp.includes('T')) {
+            dateStr = report.timestamp.slice(0, 10);
+          } else {
+            dateStr = report.timestamp;
+          }
+        } else {
+          dateStr = new Date(report.timestamp).toISOString().slice(0, 10);
+        }
+        
+        return dateStr === today;
+      } catch (error) {
+        console.log('⚠️ 日付処理エラー:', report.timestamp, error);
+        return false;
+      }
+    });
+
+    const todayStats = {
+      books: todayReports.filter(r => r.category === 'book').length,
+      movies: todayReports.filter(r => r.category === 'movie').length,
+      animes: todayReports.filter(r => r.category === 'anime').length, // 🆕 アニメ追加
+      activities: todayReports.filter(r => r.category === 'activity').length
+    };
+
+    console.log('🎯 今日の実績（アニメ含む）:', todayStats);
+
+    // ストリーク計算
+    const streak = this.calculateStreak(recentReports);
+    const weeklyProgress = await this.calculateWeeklyProgress(recentReports);
+    const momentum = this.calculateMomentum(recentReports);
+
+    const analysis = {
+      today: todayStats,
+      streak,
+      weeklyProgress,
+      momentum
+    };
+
+    console.log('📊 進捗分析結果（アニメ含む）:', analysis);
+    return analysis;
+
+  } catch (error) {
+    console.error('❌ 進捗分析エラー:', error);
+    return {
+      today: { books: 0, movies: 0, animes: 0, activities: 0 },
+      streak: 0,
+      weeklyProgress: 0,
+      momentum: 'stable'
+    };
+  }
+}
   /**
    * ストリークを計算（修正版）
    */
