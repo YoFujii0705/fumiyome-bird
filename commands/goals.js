@@ -30,6 +30,7 @@ module.exports = {
             .addChoices(
               { name: '📚 本', value: 'books' },
               { name: '🎬 映画', value: 'movies' },
+              { name: '📺 アニメ', value: 'animes' }, 
               { name: '🎯 活動', value: 'activities' },
               { name: '📝 日報', value: 'reports' }
             ))
