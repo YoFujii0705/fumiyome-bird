@@ -833,6 +833,302 @@ async getBookCounts() {
     }
   }
 
+/**
+ * 記事の詳細情報を含む未読記事リストを取得
+ */
+async getPendingArticleDetails() {
+  try {
+    console.log('📰 未読記事の詳細データを取得中...');
+    
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が設定されていません');
+    }
+
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    // 記事シートのデータを取得
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles!A:K', // ID, title, url, priority, category, status, rating, review, memo, created_at, updated_at
+    });
+
+    const rows = response.data.values || [];
+    if (rows.length <= 1) {
+      console.log('記事データが見つかりません');
+      return [];
+    }
+
+    const headers = rows[0];
+    const dataRows = rows.slice(1);
+    
+    console.log('📊 記事データヘッダー:', headers);
+    console.log('📊 記事データ行数:', dataRows.length);
+
+    // 未読記事のみフィルタリングして構造化
+    const pendingArticles = dataRows
+      .map((row, index) => {
+        try {
+          const article = {
+            id: parseInt(row[0]) || (index + 1),
+            title: row[1] || 'タイトルなし',
+            url: row[2] || null,
+            priority: row[3] || 'medium',
+            category: row[4] || 'general',
+            status: row[5] || 'want_to_read',
+            rating: row[6] ? parseInt(row[6]) : null,
+            review: row[7] || null,
+            memo: row[8] || null,
+            created_at: row[9] || null,
+            updated_at: row[10] || null
+          };
+          
+          return article;
+        } catch (error) {
+          console.error(`記事データ解析エラー (行 ${index + 2}):`, error);
+          return null;
+        }
+      })
+      .filter(article => article !== null && article.status === 'want_to_read')
+      .sort((a, b) => {
+        // 優先度順、次にID順
+        const priorityOrder = { 'high': 3, 'medium': 2, 'low': 1 };
+        const aPriority = priorityOrder[a.priority] || 2;
+        const bPriority = priorityOrder[b.priority] || 2;
+        
+        if (aPriority !== bPriority) {
+          return bPriority - aPriority; // 高優先度を上に
+        }
+        return a.id - b.id; // ID順
+      });
+
+    console.log(`✅ ${pendingArticles.length}件の未読記事詳細を取得しました`);
+    
+    // デバッグ用：最初の3件を表示
+    if (pendingArticles.length > 0) {
+      console.log('📖 未読記事サンプル:', pendingArticles.slice(0, 3).map(a => ({
+        id: a.id,
+        title: a.title,
+        priority: a.priority,
+        category: a.category,
+        hasUrl: !!a.url
+      })));
+    }
+    
+    return pendingArticles;
+    
+  } catch (error) {
+    console.error('未読記事詳細取得エラー:', error);
+    
+    // フォールバック：従来のメソッドを使用
+    try {
+      console.log('🔄 フォールバック：従来の未読記事取得を試行...');
+      const fallbackArticles = await this.getPendingArticles();
+      
+      // 文字列配列を簡易的なオブジェクト配列に変換
+      return fallbackArticles.map((articleStr, index) => {
+        const idMatch = articleStr.match(/\[(\d+)\]/);
+        const id = idMatch ? parseInt(idMatch[1]) : index + 1;
+        
+        // タイトル抽出（ID部分を除く）
+        let title = articleStr.replace(/\[\d+\]\s*/, '').trim();
+        
+        // ステータス情報を除去
+        title = title.replace(/\s*\([^)]+\)$/, '').trim();
+        
+        // 優先度を推定
+        let priority = 'medium';
+        if (articleStr.includes('高') || articleStr.includes('urgent')) {
+          priority = 'high';
+        } else if (articleStr.includes('低') || articleStr.includes('low')) {
+          priority = 'low';
+        }
+        
+        // カテゴリを推定
+        let category = 'general';
+        if (articleStr.includes('tech') || articleStr.includes('技術')) {
+          category = 'tech';
+        } else if (articleStr.includes('business') || articleStr.includes('ビジネス')) {
+          category = 'business';
+        } else if (articleStr.includes('news') || articleStr.includes('ニュース')) {
+          category = 'news';
+        }
+        
+        return {
+          id,
+          title,
+          url: null, // フォールバックではURLは取得できない
+          priority,
+          category,
+          status: 'want_to_read',
+          rating: null,
+          review: null,
+          memo: null,
+          created_at: null,
+          updated_at: null
+        };
+      });
+    } catch (fallbackError) {
+      console.error('フォールバック取得エラー:', fallbackError);
+      return [];
+    }
+  }
+}
+
+/**
+ * 最近読了した記事の詳細を取得
+ */
+async getRecentlyReadArticleDetails(days = 7) {
+  try {
+    console.log(`📚 過去${days}日間の読了記事詳細を取得中...`);
+    
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が設定されていません');
+    }
+
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles!A:K',
+    });
+
+    const rows = response.data.values || [];
+    if (rows.length <= 1) {
+      return [];
+    }
+
+    const headers = rows[0];
+    const dataRows = rows.slice(1);
+    
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() - days);
+    
+    const recentReadArticles = dataRows
+      .map((row, index) => {
+        try {
+          const article = {
+            id: parseInt(row[0]) || (index + 1),
+            title: row[1] || 'タイトルなし',
+            url: row[2] || null,
+            priority: row[3] || 'medium',
+            category: row[4] || 'general',
+            status: row[5] || 'want_to_read',
+            rating: row[6] ? parseInt(row[6]) : null,
+            review: row[7] || null,
+            memo: row[8] || null,
+            created_at: row[9] || null,
+            updated_at: row[10] || null
+          };
+          
+          return article;
+        } catch (error) {
+          console.error(`記事データ解析エラー (行 ${index + 2}):`, error);
+          return null;
+        }
+      })
+      .filter(article => {
+        if (!article || article.status !== 'read') return false;
+        
+        if (!article.updated_at) return false;
+        
+        try {
+          const updatedDate = new Date(article.updated_at);
+          return updatedDate >= targetDate;
+        } catch {
+          return false;
+        }
+      })
+      .sort((a, b) => {
+        // 更新日時の新しい順
+        try {
+          const dateA = new Date(a.updated_at || 0);
+          const dateB = new Date(b.updated_at || 0);
+          return dateB - dateA;
+        } catch {
+          return 0;
+        }
+      });
+
+    console.log(`✅ ${recentReadArticles.length}件の最近読了記事を取得しました`);
+    
+    return recentReadArticles;
+    
+  } catch (error) {
+    console.error('最近読了記事取得エラー:', error);
+    
+    // フォールバック
+    try {
+      const fallbackArticles = await this.getRecentlyReadArticles?.(days) || [];
+      return fallbackArticles.map((articleStr, index) => ({
+        id: index + 1,
+        title: articleStr.replace(/✅\s*/, '').replace(/⭐+/, '').trim(),
+        rating: (articleStr.match(/⭐{1,5}/) || [''])[0].length || null,
+        status: 'read'
+      }));
+    } catch (fallbackError) {
+      console.error('フォールバック取得エラー:', fallbackError);
+      return [];
+    }
+  }
+}
+
+/**
+ * 記事詳細情報を取得
+ */
+async getArticleInfo(articleId) {
+  try {
+    console.log(`📖 記事ID ${articleId} の詳細を取得中...`);
+    
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が設定されていません');
+    }
+
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles!A:K',
+    });
+
+    const rows = response.data.values || [];
+    if (rows.length <= 1) {
+      return null;
+    }
+
+    const headers = rows[0];
+    const dataRows = rows.slice(1);
+    
+    // ID一致の記事を検索
+    const articleRow = dataRows.find(row => parseInt(row[0]) === articleId);
+    
+    if (!articleRow) {
+      console.log(`記事ID ${articleId} が見つかりません`);
+      return null;
+    }
+    
+    const article = {
+      id: parseInt(articleRow[0]),
+      title: articleRow[1] || 'タイトルなし',
+      url: articleRow[2] || null,
+      priority: articleRow[3] || 'medium',
+      category: articleRow[4] || 'general',
+      status: articleRow[5] || 'want_to_read',
+      rating: articleRow[6] ? parseInt(articleRow[6]) : null,
+      review: articleRow[7] || null,
+      memo: articleRow[8] || null,
+      created_at: articleRow[9] || null,
+      updated_at: articleRow[10] || null
+    };
+    
+    console.log(`✅ 記事詳細を取得: ${article.title}`);
+    return article;
+    
+  } catch (error) {
+    console.error('記事詳細取得エラー:', error);
+    return null;
+  }
+}
+  
   // === 映画関連のメソッド ===
 /**
    * 全ての映画を取得
