@@ -1,4 +1,4 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const GoogleSheetsService = require('../services/googleSheets');
 
 // GoogleSheetsServiceのインスタンスを作成
@@ -56,7 +56,7 @@ module.exports = {
           { name: '活動内容', value: content, inline: true },
           { name: 'ステータス', value: '🎯 予定', inline: true }
         )
-        .setFooter({ text: '完了したら /activity done で記録しましょう！' })
+        .setFooter({ text: '完了したら /activity done で記録しましょう！（選択式）' })
         .setTimestamp();
       
       if (memo) {
@@ -70,99 +70,157 @@ module.exports = {
     }
   },
 
+  // 🆕 選択式 - 予定中の活動から選択
   async handleDone(interaction) {
-    const doneId = interaction.options.getInteger('id');
-    
     try {
-      const doneActivity = await googleSheets.doneActivity(doneId);
+      const plannedActivities = await googleSheets.getActivitiesByStatus('planned');
       
-      if (doneActivity) {
+      if (plannedActivities.length === 0) {
         const embed = new EmbedBuilder()
-          .setTitle('🎉 活動完了！')
-          .setColor('#4CAF50')
-          .setDescription('素晴らしい！目標を達成しましたね！🎉✨')
-          .addFields(
-            { name: 'ID', value: doneActivity.id.toString(), inline: true },
-            { name: '活動内容', value: doneActivity.content, inline: true },
-            { name: 'ステータス変更', value: '🎯 予定 → ✅ 完了', inline: true }
-          )
-          .setFooter({ text: '感想を /report activity で記録してみませんか？' })
-          .setTimestamp();
-        
-        if (doneActivity.memo) {
-          embed.addFields({ name: '備考', value: doneActivity.memo, inline: false });
-        }
-        
-        // 達成を祝うメッセージを追加
-        const congratsMessages = [
-          '継続は力なり！次の活動も頑張りましょう！',
-          'お疲れ様でした！着実に前進していますね！',
-          '素晴らしい成果です！この調子で行きましょう！',
-          '目標達成おめでとうございます！次はどんな挑戦をしますか？',
-          '努力が実を結びましたね！次のステップも楽しみです！'
-        ];
-        
-        const randomMessage = congratsMessages[Math.floor(Math.random() * congratsMessages.length)];
-        embed.setDescription(randomMessage + ' 🎉✨');
-        
-        await interaction.editReply({ embeds: [embed] });
-      } else {
-        const embed = new EmbedBuilder()
-          .setTitle('❓ 活動が見つかりません')
+          .setTitle('🎯 活動完了記録')
           .setColor('#FF5722')
-          .setDescription(`ID: ${doneId} の活動が見つからないか、既に完了済みです。`)
+          .setDescription('現在予定中の活動がありません。')
           .addFields(
-            { name: '💡 確認方法', value: '`/activity list` で活動一覧を確認してください', inline: false }
-          )
-          .setTimestamp();
+            { name: '💡 ヒント', value: '`/activity add [内容]` で新しい活動を追加してください', inline: false }
+          );
         
         await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+      
+      if (plannedActivities.length <= 25) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('activity_done_select')
+          .setPlaceholder('完了した活動を選択してください')
+          .addOptions(
+            plannedActivities.map(activity => ({
+              label: `${activity.content}`.slice(0, 100),
+              description: `備考: ${activity.memo || 'なし'}`.slice(0, 100),
+              value: activity.id.toString()
+            }))
+          );
+        
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        const embed = new EmbedBuilder()
+          .setTitle('🎯 活動完了記録')
+          .setColor('#4CAF50')
+          .setDescription(`予定中の活動が ${plannedActivities.length} 件あります。完了した活動を選択してください。`)
+          .addFields(
+            { name: '🎯 予定中の活動', value: plannedActivities.map(activity => `🎯 ${activity.content}`).join('\n').slice(0, 1024), inline: false }
+          );
+        
+        await interaction.editReply({ embeds: [embed], components: [row] });
+      } else {
+        await this.handleDoneWithPagination(interaction, plannedActivities);
       }
     } catch (error) {
-      console.error('活動完了記録エラー:', error);
-      await interaction.editReply('❌ 活動完了記録中にエラーが発生しました。');
+      console.error('活動完了選択エラー:', error);
+      await interaction.editReply('❌ 活動完了選択中にエラーが発生しました。');
     }
   },
 
+  // 🆕 選択式 - 予定中の活動からスキップ選択
   async handleSkip(interaction) {
-    const skipId = interaction.options.getInteger('id');
-    
     try {
-      const skippedActivity = await googleSheets.skipActivity(skipId);
+      const plannedActivities = await googleSheets.getActivitiesByStatus('planned');
       
-      if (skippedActivity) {
+      if (plannedActivities.length === 0) {
         const embed = new EmbedBuilder()
-          .setTitle('😅 活動をスキップしました')
-          .setColor('#FF9800')
-          .setDescription('大丈夫です！時には見送ることも必要ですね。また機会があればチャレンジしてみてください！')
-          .addFields(
-            { name: 'ID', value: skippedActivity.id.toString(), inline: true },
-            { name: '活動内容', value: skippedActivity.content, inline: true },
-            { name: 'ステータス変更', value: '🎯 予定 → 😅 スキップ', inline: true }
-          )
-          .setFooter({ text: '新しい活動を追加して再チャレンジしてみましょう！' })
-          .setTimestamp();
-        
-        if (skippedActivity.memo) {
-          embed.addFields({ name: '備考', value: skippedActivity.memo, inline: false });
-        }
-        
-        await interaction.editReply({ embeds: [embed] });
-      } else {
-        const embed = new EmbedBuilder()
-          .setTitle('❓ 活動が見つかりません')
+          .setTitle('😅 活動スキップ記録')
           .setColor('#FF5722')
-          .setDescription(`ID: ${skipId} の活動が見つからないか、既に処理済みです。`)
+          .setDescription('現在予定中の活動がありません。')
           .addFields(
-            { name: '💡 確認方法', value: '`/activity list` で活動一覧を確認してください', inline: false }
-          )
-          .setTimestamp();
+            { name: '💡 ヒント', value: '`/activity add [内容]` で新しい活動を追加してください', inline: false }
+          );
         
         await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+      
+      if (plannedActivities.length <= 25) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('activity_skip_select')
+          .setPlaceholder('スキップする活動を選択してください')
+          .addOptions(
+            plannedActivities.map(activity => ({
+              label: `${activity.content}`.slice(0, 100),
+              description: `備考: ${activity.memo || 'なし'}`.slice(0, 100),
+              value: activity.id.toString()
+            }))
+          );
+        
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        const embed = new EmbedBuilder()
+          .setTitle('😅 活動スキップ記録')
+          .setColor('#FF9800')
+          .setDescription(`予定中の活動が ${plannedActivities.length} 件あります。スキップする活動を選択してください。`)
+          .addFields(
+            { name: '🎯 予定中の活動', value: plannedActivities.map(activity => `🎯 ${activity.content}`).join('\n').slice(0, 1024), inline: false }
+          );
+        
+        await interaction.editReply({ embeds: [embed], components: [row] });
+      } else {
+        await this.handleSkipWithPagination(interaction, plannedActivities);
       }
     } catch (error) {
-      console.error('活動スキップ記録エラー:', error);
-      await interaction.editReply('❌ 活動スキップ記録中にエラーが発生しました。');
+      console.error('活動スキップ選択エラー:', error);
+      await interaction.editReply('❌ 活動スキップ選択中にエラーが発生しました。');
+    }
+  },
+
+  // 🆕 選択式 - 全ての活動から選択
+  async handleInfo(interaction) {
+    try {
+      const allActivities = await googleSheets.getAllActivities();
+      
+      if (allActivities.length === 0) {
+        const embed = new EmbedBuilder()
+          .setTitle('📄 活動の詳細情報')
+          .setColor('#FF5722')
+          .setDescription('登録されている活動がありません。')
+          .addFields(
+            { name: '💡 ヒント', value: '`/activity add [内容]` で活動を追加してください', inline: false }
+          );
+        
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+      
+      if (allActivities.length <= 25) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('activity_info_select')
+          .setPlaceholder('詳細を確認する活動を選択してください')
+          .addOptions(
+            allActivities.map(activity => ({
+              label: `${activity.content}`.slice(0, 100),
+              description: `${this.getStatusText(activity.status)} | ${activity.memo || 'メモなし'}`.slice(0, 100),
+              value: activity.id.toString()
+            }))
+          );
+        
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📄 活動の詳細情報')
+          .setColor('#3F51B5')
+          .setDescription(`登録されている活動が ${allActivities.length} 件あります。詳細を確認する活動を選択してください。`)
+          .addFields(
+            { name: '🎯 登録済みの活動', value: allActivities.slice(0, 10).map(activity => `${this.getStatusEmoji(activity.status)} ${activity.content}`).join('\n').slice(0, 1024), inline: false }
+          );
+        
+        if (allActivities.length > 10) {
+          embed.addFields({ name: '📝 その他', value: `... 他${allActivities.length - 10}件`, inline: false });
+        }
+        
+        await interaction.editReply({ embeds: [embed], components: [row] });
+      } else {
+        await this.handleInfoWithPagination(interaction, allActivities);
+      }
+    } catch (error) {
+      console.error('活動詳細選択エラー:', error);
+      await interaction.editReply('❌ 活動詳細選択中にエラーが発生しました。');
     }
   },
 
@@ -185,10 +243,8 @@ module.exports = {
         return;
       }
       
-      // 活動をステータス別に分類
       const statusOrder = ['planned', 'done', 'skipped'];
       const groupedActivities = activities.reduce((acc, activity) => {
-        // 活動文字列からステータスを抽出
         const statusMatch = activity.match(/\(([^)]+)\)$/);
         const status = statusMatch ? statusMatch[1] : 'planned';
         
@@ -203,7 +259,6 @@ module.exports = {
         .setDescription(`全 ${activities.length} 件の活動が登録されています`)
         .setTimestamp();
       
-      // ステータス別に表示
       statusOrder.forEach(status => {
         if (groupedActivities[status] && groupedActivities[status].length > 0) {
           const statusName = {
@@ -212,7 +267,6 @@ module.exports = {
             'skipped': '😅 スキップ'
           }[status] || status;
           
-          // 最大10件まで表示
           const displayActivities = groupedActivities[status].slice(0, 10);
           const moreCount = groupedActivities[status].length - 10;
           
@@ -229,7 +283,6 @@ module.exports = {
         }
       });
       
-      // 統計情報を追加
       const totalPlanned = groupedActivities['planned']?.length || 0;
       const totalCompleted = groupedActivities['done']?.length || 0;
       const completionRate = totalCompleted + totalPlanned > 0 
@@ -244,7 +297,7 @@ module.exports = {
         });
       }
       
-      embed.setFooter({ text: '操作: /activity done [ID] または /activity skip [ID]' });
+      embed.setFooter({ text: '操作: /activity done, /activity skip (選択式で実行可能)' });
       
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
@@ -278,7 +331,6 @@ module.exports = {
         .setDescription(`${plannedActivities.length} 件の活動が予定中です`)
         .setTimestamp();
       
-      // 最大15件まで表示
       const displayActivities = plannedActivities.slice(0, 15);
       const moreCount = plannedActivities.length - 15;
       
@@ -293,7 +345,7 @@ module.exports = {
         inline: false
       });
       
-      embed.setFooter({ text: '完了したら /activity done [ID] で記録しましょう！' });
+      embed.setFooter({ text: '完了したら /activity done で記録しましょう！（選択式）' });
       
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
@@ -313,7 +365,7 @@ module.exports = {
           .setColor('#4CAF50')
           .setDescription('まだ完了した活動がありません。')
           .addFields(
-            { name: '🎯 活動を完了', value: '予定中の活動を `/activity done [ID]` で完了できます', inline: false }
+            { name: '🎯 活動を完了', value: '予定中の活動を `/activity done` で完了できます（選択式）', inline: false }
           )
           .setTimestamp();
         
@@ -327,7 +379,6 @@ module.exports = {
         .setDescription(`${completedActivities.length} 件の活動を完了済みです`)
         .setTimestamp();
       
-      // 最大15件まで表示
       const displayActivities = completedActivities.slice(0, 15);
       const moreCount = completedActivities.length - 15;
       
@@ -342,7 +393,7 @@ module.exports = {
         inline: false
       });
       
-      embed.setFooter({ text: '振り返りは /report activity [ID] で記録できます' });
+      embed.setFooter({ text: '振り返りは /report activity で記録できます（選択式）' });
       
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
@@ -351,102 +402,195 @@ module.exports = {
     }
   },
 
-  async handleInfo(interaction) {
-    try {
-      const id = interaction.options.getInteger('id');
-      const itemInfo = await googleSheets.getItemInfo('activity', id);
+  // ページネーション用のヘルパーメソッド
+  async handleDoneWithPagination(interaction, activities, page = 0) {
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(activities.length / itemsPerPage);
+    const currentActivities = activities.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`activity_done_select_page_${page}`)
+      .setPlaceholder('完了した活動を選択してください')
+      .addOptions(
+        currentActivities.map(activity => ({
+          label: `${activity.content}`.slice(0, 100),
+          description: `備考: ${activity.memo || 'なし'}`.slice(0, 100),
+          value: activity.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    if (totalPages > 1) {
+      const buttons = [];
       
-      if (!itemInfo) {
-        const embed = new EmbedBuilder()
-          .setTitle('❓ 活動が見つかりません')
-          .setColor('#FF5722')
-          .setDescription(`ID: ${id} の活動が見つかりませんでした。`)
-          .addFields(
-            { name: '💡 確認方法', value: '`/activity list` で活動一覧を確認してください', inline: false }
-          )
-          .setTimestamp();
-        
-        await interaction.editReply({ embeds: [embed] });
-        return;
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`activity_done_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
       }
       
-      // 活動の詳細情報を取得
-      const activities = await googleSheets.getActivities();
-      const activityData = activities.find(activity => activity.includes(`[${id}]`));
-      
-      let status = 'planned';
-      if (activityData) {
-        if (activityData.includes('(done)')) status = 'done';
-        else if (activityData.includes('(skipped)')) status = 'skipped';
-        else if (activityData.includes('(planned)')) status = 'planned';
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`activity_done_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
       }
       
-      const statusEmoji = {
-        'planned': '🎯',
-        'done': '✅',
-        'skipped': '😅'
-      };
-      
-      const statusText = {
-        'planned': '予定中',
-        'done': '完了',
-        'skipped': 'スキップ'
-      };
-      
-      const embed = new EmbedBuilder()
-        .setTitle(`🎯 ${itemInfo.content}`)
-        .setColor('#00BCD4')
-        .addFields(
-          { name: 'ID', value: id.toString(), inline: true },
-          { name: 'ステータス', value: `${statusEmoji[status]} ${statusText[status]}`, inline: true },
-          { name: '活動内容', value: itemInfo.content, inline: false }
-        )
-        .setTimestamp();
-      
-      // レポート履歴を取得
-      const reports = await googleSheets.getReportsByItem('activity', id);
-      if (reports.length > 0) {
-        const recentReports = reports.slice(0, 3);
-        const reportList = recentReports.map(report => {
-          const date = new Date(report.date).toLocaleDateString('ja-JP');
-          return `📅 ${date}: ${report.content.substring(0, 50)}...`;
-        }).join('\n');
-        
-        embed.addFields({
-          name: `📝 最近のレポート (${reports.length}件)`,
-          value: reportList,
-          inline: false
-        });
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
       }
-      
-      // アクション提案
-      const actions = [];
-      if (status === 'planned') {
-        actions.push('`/activity done` で完了に');
-        actions.push('`/activity skip` でスキップに');
-      }
-      actions.push('`/report activity` で進捗を記録');
-      
-      if (actions.length > 0) {
-        embed.addFields({
-          name: '💡 できること',
-          value: actions.join('\n'),
-          inline: false
-        });
-      }
-      
-      await interaction.editReply({ embeds: [embed] });
-    } catch (error) {
-      console.error('活動詳細取得エラー:', error);
-      await interaction.editReply('❌ 活動詳細の取得中にエラーが発生しました。');
     }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('🎯 活動完了記録')
+      .setColor('#4CAF50')
+      .setDescription(`予定中の活動が ${activities.length} 件あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '🎯 予定中の活動', value: currentActivities.map(activity => `🎯 ${activity.content}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    await interaction.editReply({ embeds: [embed], components });
+  },
+
+  async handleSkipWithPagination(interaction, activities, page = 0) {
+    // handleDoneWithPaginationと同様の実装
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(activities.length / itemsPerPage);
+    const currentActivities = activities.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`activity_skip_select_page_${page}`)
+      .setPlaceholder('スキップする活動を選択してください')
+      .addOptions(
+        currentActivities.map(activity => ({
+          label: `${activity.content}`.slice(0, 100),
+          description: `備考: ${activity.memo || 'なし'}`.slice(0, 100),
+          value: activity.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    if (totalPages > 1) {
+      const buttons = [];
+      
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`activity_skip_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`activity_skip_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
+      }
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('😅 活動スキップ記録')
+      .setColor('#FF9800')
+      .setDescription(`予定中の活動が ${activities.length} 件あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '🎯 予定中の活動', value: currentActivities.map(activity => `🎯 ${activity.content}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    await interaction.editReply({ embeds: [embed], components });
+  },
+
+  async handleInfoWithPagination(interaction, activities, page = 0) {
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(activities.length / itemsPerPage);
+    const currentActivities = activities.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`activity_info_select_page_${page}`)
+      .setPlaceholder('詳細を確認する活動を選択してください')
+      .addOptions(
+        currentActivities.map(activity => ({
+          label: `${activity.content}`.slice(0, 100),
+          description: `${this.getStatusText(activity.status)} | ${activity.memo || 'メモなし'}`.slice(0, 100),
+          value: activity.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    if (totalPages > 1) {
+      const buttons = [];
+      
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`activity_info_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`activity_info_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
+      }
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('📄 活動の詳細情報')
+      .setColor('#3F51B5')
+      .setDescription(`登録されている活動が ${activities.length} 件あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '🎯 登録済みの活動', value: currentActivities.map(activity => `${this.getStatusEmoji(activity.status)} ${activity.content}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    await interaction.editReply({ embeds: [embed], components });
+  },
+
+  // ヘルパーメソッド
+  getStatusEmoji(status) {
+    const emojis = {
+      'planned': '🎯',
+      'done': '✅',
+      'skipped': '😅'
+    };
+    return emojis[status] || '❓';
+  },
+
+  getStatusText(status) {
+    const texts = {
+      'planned': '予定中',
+      'done': '完了',
+      'skipped': 'スキップ'
+    };
+    return texts[status] || status;
   },
 
   // 活動の優先度を設定するヘルパー（将来の拡張用）
   async setPriority(activityId, priority) {
-    // 優先度: high, medium, low
     try {
-      // 将来的にGoogle Sheetsで優先度カラムを追加した場合の実装
       console.log(`活動ID ${activityId} の優先度を ${priority} に設定`);
       return true;
     } catch (error) {
@@ -491,7 +635,6 @@ module.exports = {
   suggestDeadline(content) {
     const lowerContent = content.toLowerCase();
     
-    // 内容に基づいた推奨期限
     if (lowerContent.includes('習慣') || lowerContent.includes('継続')) {
       return '継続的な活動のため期限なし';
     } else if (lowerContent.includes('緊急') || lowerContent.includes('急ぎ')) {
