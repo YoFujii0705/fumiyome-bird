@@ -33,6 +33,9 @@ module.exports = {
         case 'activity':
           await this.searchActivities(interaction, cleanKeyword);
           break;
+        case 'anime':
+          await this.searchAnimes(interaction, cleanKeyword);
+          break;
         case 'all':
           await this.searchAll(interaction, cleanKeyword);
           break;
@@ -236,6 +239,70 @@ module.exports = {
     } catch (error) {
       console.error('活動検索エラー:', error);
       await interaction.editReply('❌ 活動の検索中にエラーが発生しました。');
+    }
+  },
+
+  async searchAnimes(interaction, keyword) {
+    try {
+      const results = await googleSheets.searchAnimes(keyword);
+      
+      if (results.length === 0) {
+        const embed = new EmbedBuilder()
+          .setTitle(`🔍 アニメの検索結果: "${keyword}"`)
+          .setColor('#d9aacd')
+          .setDescription('該当する活動が見つかりませんでした。')
+          .addFields(
+            { name: '💡 検索のコツ', value: '• 活動内容の一部で検索してみてください\n• 関連キーワードでも試してみてください\n• カテゴリ名（学習、運動など）でも検索可能', inline: false },
+            { name: '📺 アニメを追加', value: '`/anime add [内容]` で新しいアニメを追加できます', inline: false }
+          )
+          .setTimestamp();
+        
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+      
+      const groupedResults = this.groupResultsByStatus(results, 'anime');
+      
+      const embed = new EmbedBuilder()
+        .setTitle(`📺 アニメの検索結果: "${keyword}"`)
+        .setColor('#d9aacd')
+        .setDescription(`${results.length}件の活動が見つかりました`)
+        .setTimestamp();
+      
+      let totalDisplayed = 0;
+      const maxDisplay = 20;
+      
+      Object.entries(groupedResults).forEach(([status, items]) => {
+        if (items.length > 0 && totalDisplayed < maxDisplay) {
+          const statusName = this.getStatusDisplayName('anime', status);
+          const displayItems = items.slice(0, Math.min(8, maxDisplay - totalDisplayed));
+          const moreCount = items.length - displayItems.length;
+          
+          let fieldValue = displayItems.join('\n');
+          if (moreCount > 0) {
+            fieldValue += `\n... 他${moreCount}件`;
+          }
+          
+          embed.addFields({
+            name: `${statusName} (${items.length}件)`,
+            value: fieldValue,
+            inline: false
+          });
+          
+          totalDisplayed += displayItems.length;
+        }
+      });
+      
+      if (results.length > maxDisplay) {
+        embed.setFooter({ text: `${maxDisplay}件まで表示 (全${results.length}件中)` });
+      } else {
+        embed.setFooter({ text: `全${results.length}件を表示` });
+      }
+      
+      await interaction.editReply({ embeds: [embed] });
+    } catch (error) {
+      console.error('アニメ検索エラー:', error);
+      await interaction.editReply('❌ アニメの検索中にエラーが発生しました。');
     }
   },
 
