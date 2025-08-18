@@ -264,58 +264,102 @@ module.exports = {
   },
 
   // 🆕 選択式 - 全ての本から選択
-  async handleInfo(interaction) {
-    try {
-      const allBooks = await googleSheets.getAllBooks();
+async handleInfo(interaction) {
+  try {
+    console.log('📄 handleInfo 開始');
+    
+    // デバッグ: GoogleSheetsサービスの状態確認
+    console.log('📊 GoogleSheets認証状態:', !!googleSheets.auth);
+    
+    const allBooks = await googleSheets.getAllBooks();
+    console.log(`📚 取得した全ての本の数: ${allBooks.length}`);
+    console.log('📋 全ての本リスト:', allBooks);
+    
+    if (allBooks.length === 0) {
+      console.log('❌ 登録されている本が0冊');
+      const embed = new EmbedBuilder()
+        .setTitle('📄 本の詳細情報')
+        .setColor('#FF5722')
+        .setDescription('登録されている本がありません。')
+        .addFields(
+          { name: '💡 ヒント', value: '`/book add [タイトル] [作者]` で本を追加してください', inline: false }
+        );
       
-      if (allBooks.length === 0) {
-        const embed = new EmbedBuilder()
-          .setTitle('📄 本の詳細情報')
-          .setColor('#FF5722')
-          .setDescription('登録されている本がありません。')
-          .addFields(
-            { name: '💡 ヒント', value: '`/book add [タイトル] [作者]` で本を追加してください', inline: false }
-          );
+      await interaction.editReply({ embeds: [embed] });
+      return;
+    }
+    
+    console.log('📝 選択メニュー作成開始');
+    
+    if (allBooks.length <= 25) {
+      console.log('🎯 通常の選択メニューを作成');
+      
+      // 選択メニューのオプションを作成
+      const options = allBooks.map(book => {
+        console.log(`📖 Book option: ID=${book.id}, Title="${book.title}", Author="${book.author}", Status="${book.status}"`);
         
-        await interaction.editReply({ embeds: [embed] });
+        // データの検証
+        if (!book.id || !book.title) {
+          console.error('❌ 不正な本データ:', book);
+          return null;
+        }
+        
+        return {
+          label: `${book.title}`.slice(0, 100),
+          description: `作者: ${book.author || '不明'} | ${this.getStatusText(book.status)}`.slice(0, 100),
+          value: book.id.toString()
+        };
+      }).filter(option => option !== null); // null を除外
+      
+      console.log('🎨 作成されたオプション:', options);
+      
+      if (options.length === 0) {
+        console.error('❌ 有効なオプションがありません');
+        await interaction.editReply({ 
+          content: '❌ 本の情報に問題があります。管理者に連絡してください。', 
+          components: [] 
+        });
         return;
       }
       
-      if (allBooks.length <= 25) {
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId('book_info_select')
-          .setPlaceholder('詳細を確認する本を選択してください')
-          .addOptions(
-            allBooks.map(book => ({
-              label: `${book.title}`.slice(0, 100),
-              description: `作者: ${book.author} | ${this.getStatusText(book.status)}`.slice(0, 100),
-              value: book.id.toString()
-            }))
-          );
-        
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-        
-        const embed = new EmbedBuilder()
-          .setTitle('📄 本の詳細情報')
-          .setColor('#3F51B5')
-          .setDescription(`登録されている本が ${allBooks.length} 冊あります。詳細を確認する本を選択してください。`)
-          .addFields(
-            { name: '📚 登録済みの本', value: allBooks.slice(0, 10).map(book => `${this.getStatusEmoji(book.status)} ${book.title} - ${book.author}`).join('\n').slice(0, 1024), inline: false }
-          );
-        
-        if (allBooks.length > 10) {
-          embed.addFields({ name: '📝 その他', value: `... 他${allBooks.length - 10}冊`, inline: false });
-        }
-        
-        await interaction.editReply({ embeds: [embed], components: [row] });
-      } else {
-        await this.handleInfoWithPagination(interaction, allBooks);
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('book_info_select')
+        .setPlaceholder('詳細を確認する本を選択してください')
+        .addOptions(options);
+      
+      const row = new ActionRowBuilder().addComponents(selectMenu);
+      
+      const embed = new EmbedBuilder()
+        .setTitle('📄 本の詳細情報')
+        .setColor('#3F51B5')
+        .setDescription(`登録されている本が ${allBooks.length} 冊あります。詳細を確認する本を選択してください。`)
+        .addFields(
+          { name: '📚 登録済みの本', value: allBooks.slice(0, 10).map(book => `${this.getStatusEmoji(book.status)} ${book.title} - ${book.author || '不明'}`).join('\n').slice(0, 1024), inline: false }
+        );
+      
+      if (allBooks.length > 10) {
+        embed.addFields({ name: '📝 その他', value: `... 他${allBooks.length - 10}冊`, inline: false });
       }
-    } catch (error) {
-      console.error('本詳細選択エラー:', error);
-      await interaction.editReply('❌ 本詳細選択中にエラーが発生しました。');
+      
+      console.log('📤 選択メニュー付きの返信を送信');
+      await interaction.editReply({ embeds: [embed], components: [row] });
+      
+    } else {
+      console.log('📄 ページネーション使用');
+      await this.handleInfoWithPagination(interaction, allBooks);
     }
-  },
+    
+  } catch (error) {
+    console.error('❌ 本詳細選択エラー:', error);
+    console.error('❌ エラースタック:', error.stack);
+    
+    try {
+      await interaction.editReply('❌ 本詳細選択中にエラーが発生しました。');
+    } catch (replyError) {
+      console.error('❌ エラー応答送信失敗:', replyError);
+    }
+  }
+},
 
   // 既存のメソッド（変更なし）
   async handleList(interaction) {
