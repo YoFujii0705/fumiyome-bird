@@ -24,6 +24,11 @@ module.exports = {
         .setName('books')
         .setDescription('📚 読書統計詳細'))
     
+    .addSubcommand(subcommand => // 🆕 アニメサブコマンド追加
+      subcommand
+        .setName('anime')
+        .setDescription('アニメ視聴統計の詳細を表示'))
+    
     .addSubcommand(subcommand =>
       subcommand
         .setName('current')
