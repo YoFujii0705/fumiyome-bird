@@ -1078,7 +1078,7 @@ async getBookCounts() {
 
   // === 活動関連のメソッド ===
 
-/**
+  /**
    * 全ての活動を取得
    */
   async getAllActivities() {
