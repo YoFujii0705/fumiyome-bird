@@ -265,68 +265,63 @@ class GoogleSheetsService {
    * 全ての本を取得
    */
   async getAllBooks() {
-    try {
-      console.log('📚 Books データを取得中...');
-      
-      if (!this.auth) {
-        console.log('認証なし - 空の配列を返します');
-        return [];
-      }
-
-      // books_master シートからデータを取得
-      const range = 'books_master!A:G'; // A列からG列まで
-      const operation = async () => {
-        const auth = await this.auth.getClient();
-        return this.sheets.spreadsheets.values.get({
-          auth,
-          spreadsheetId: this.spreadsheetId,
-          range: range,
-        });
-      };
-
-      const response = await this.executeWithTimeout(operation, 10000);
-      const rows = response.data.values;
-      
-      if (!rows || rows.length <= 1) {
-        console.log('📚 Booksデータが見つかりません');
-        return [];
-      }
-
-      // ヘッダー行を取得（1行目）
-      const headers = rows[0];
-      console.log('📋 検出されたヘッダー:', headers);
-      
-      // データ行を処理（2行目以降）
-      const books = [];
-      for (let i = 1; i < rows.length; i++) {
-        const row = rows[i];
-        if (!row || row.length === 0) continue; // 空行をスキップ
-        
-        const book = {
-          id: row[0] || '',           // A列: ID
-          registeredAt: row[1] || '', // B列: 登録日時
-          title: row[2] || '',        // C列: タイトル
-          author: row[3] || '',       // D列: 作者名
-          notes: row[4] || '',        // E列: 備考
-          status: row[5] || '',       // F列: ステータス
-          date: row[6] || ''          // G列: 日付
-        };
-        
-        // IDが有効な場合のみ追加
-        if (book.id && book.id.toString().trim() !== '') {
-          books.push(book);
-        }
-      }
-
-      console.log(`✅ ${books.length}件のBooksを取得しました`);
-      return books;
-
-    } catch (error) {
-      console.error('❌ Books取得エラー:', error.message);
+  try {
+    console.log('🔍 getAllBooks 開始');
+    
+    if (!this.auth) {
+      console.error('❌ Google Sheets認証がありません');
+      throw new Error('Google Sheets認証が必要です');
+    }
+    
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    console.log('📊 スプレッドシートからデータ取得中...');
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'Books!A:G', // 必要な列を指定
+    });
+    
+    const rows = response.data.values;
+    console.log(`📋 取得した行数: ${rows ? rows.length : 0}`);
+    
+    if (!rows || rows.length <= 1) {
+      console.log('📚 データが空またはヘッダーのみ');
       return [];
     }
+    
+    // ヘッダーを除いてデータを処理
+    const books = rows.slice(1).map((row, index) => {
+      try {
+        const book = {
+          id: parseInt(row[0]) || (index + 1), // ID
+          title: row[1] || '不明なタイトル',   // タイトル
+          author: row[2] || '不明な作者',      // 作者
+          status: row[3] || 'want_to_read',   // ステータス
+          memo: row[4] || '',                 // メモ
+          created_at: row[5] || '',           // 作成日
+          updated_at: row[6] || ''            // 更新日
+        };
+        
+        console.log(`📖 処理した本: ${book.id} - ${book.title} (${book.status})`);
+        return book;
+        
+      } catch (error) {
+        console.error(`❌ 行${index + 2}の処理エラー:`, error, 'データ:', row);
+        return null;
+      }
+    }).filter(book => book !== null && book.title !== '不明なタイトル');
+    
+    console.log(`✅ getAllBooks 完了: ${books.length}冊取得`);
+    return books;
+    
+  } catch (error) {
+    console.error('❌ getAllBooks エラー:', error);
+    console.error('❌ エラー詳細:', error.message);
+    console.error('❌ スタック:', error.stack);
+    throw error;
   }
-
+}
+  
   /**
    * IDで特定の本を取得
    */
