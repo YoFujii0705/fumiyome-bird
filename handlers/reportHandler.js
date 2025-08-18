@@ -139,7 +139,7 @@ module.exports = {
     }
   },
 
-  // 🆕 レポート入力画面（メッセージコレクター使用）
+  // 🆕 レポート入力画面（修正版メッセージコレクター）
   async showReportInput(interaction, category, itemId) {
     try {
       console.log(`📝 レポート入力画面表示: ${category}, ID: ${itemId}`);
@@ -177,99 +177,195 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setTitle('📝 レポート記録')
         .setColor('#9C27B0')
-        .setDescription('次のメッセージでレポート内容を入力してください')
+        .setDescription('**次のメッセージでレポート内容を入力してください**\n\n⚠️ スラッシュコマンドではなく、通常のメッセージで送信してください')
         .addFields(
-          { name: '対象アイテム', value: `${categoryEmoji} ${itemTitle}`, inline: false },
-          { name: '📝 記録内容の例', value: '• 今日は30分間実践\n• 新しいテクニックを習得\n• 明日は応用編にチャレンジ', inline: false },
-          { name: '⚡ 入力方法', value: 'この後に続けてレポート内容をメッセージで送信してください', inline: false }
+          { name: '📌 対象アイテム', value: `${categoryEmoji} ${itemTitle}`, inline: false },
+          { name: '📝 記録内容の例', value: '```\n今日は30分間作業しました。\n思ったより大変でしたが、だんだんコツを掴んできました。\n明日はもう少し効率的に進められそうです。\n```', inline: false },
+          { name: '⚡ 重要な注意事項', value: '• **このチャンネルに普通のメッセージとして入力**\n• スラッシュコマンド（/）は使わない\n• 5分以内に送信してください', inline: false }
         )
-        .setFooter({ text: '記録は後で /reports history で確認できます' })
+        .setFooter({ text: '⏰ 5分でタイムアウトします | 記録は /reports history で確認可能' })
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed], components: [] });
 
-      // 🆕 メッセージコレクターを設定
+      // チャンネル権限をチェック
+      console.log('🔍 チャンネル権限チェック開始');
+      console.log('📍 チャンネルタイプ:', interaction.channel.type);
+      console.log('📍 チャンネルID:', interaction.channel.id);
+      console.log('📍 ユーザーID:', interaction.user.id);
+
+      // ボットの権限確認
+      const botMember = interaction.guild?.members?.me;
+      if (botMember) {
+        const permissions = interaction.channel.permissionsFor(botMember);
+        console.log('🤖 ボット権限:');
+        console.log('  - メッセージ読み取り:', permissions.has('ViewChannel'));
+        console.log('  - メッセージ履歴読み取り:', permissions.has('ReadMessageHistory'));
+        console.log('  - メッセージ送信:', permissions.has('SendMessages'));
+        
+        if (!permissions.has('ViewChannel') || !permissions.has('ReadMessageHistory')) {
+          await interaction.followUp({
+            content: '❌ ボットにメッセージ読み取り権限がありません。サーバー管理者にお問い合わせください。',
+            ephemeral: true
+          });
+          return;
+        }
+      }
+
+      // 🆕 改良されたメッセージコレクター
       const filter = (message) => {
-        return message.author.id === interaction.user.id && !message.author.bot;
+        console.log(`🔍 メッセージフィルターチェック:`);
+        console.log(`  - メッセージ作者: ${message.author.username} (${message.author.id})`);
+        console.log(`  - 期待するユーザー: ${interaction.user.username} (${interaction.user.id})`);
+        console.log(`  - ボットかどうか: ${message.author.bot}`);
+        console.log(`  - チャンネルID: ${message.channel.id}`);
+        console.log(`  - メッセージ内容: "${message.content}"`);
+        
+        const isCorrectUser = message.author.id === interaction.user.id;
+        const isNotBot = !message.author.bot;
+        const hasContent = message.content && message.content.trim().length > 0;
+        
+        console.log(`  - ユーザー一致: ${isCorrectUser}`);
+        console.log(`  - ボットでない: ${isNotBot}`);
+        console.log(`  - 内容あり: ${hasContent}`);
+        
+        return isCorrectUser && isNotBot && hasContent;
       };
 
+      console.log('📬 メッセージコレクター設定開始');
+      
       const collector = interaction.channel.createMessageCollector({
         filter,
         max: 1,
-        time: 300000 // 5分間待機
+        time: 300000, // 5分間
+        dispose: true
       });
 
-      console.log('📬 メッセージコレクター開始');
+      console.log('✅ メッセージコレクター開始成功');
+
+      // デバッグ用：全メッセージをログ出力
+      const debugCollector = interaction.channel.createMessageCollector({
+        filter: () => true, // 全メッセージ
+        time: 300000
+      });
+
+      debugCollector.on('collect', (message) => {
+        console.log(`🔎 [デバッグ] 全メッセージ検出:`);
+        console.log(`  - 作者: ${message.author.username} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
+        console.log(`  - 内容: "${message.content}"`);
+        console.log(`  - チャンネル: ${message.channel.id}`);
+        console.log(`  - 時刻: ${new Date().toLocaleString('ja-JP')}`);
+      });
 
       collector.on('collect', async (message) => {
-        console.log('📨 メッセージ受信:', message.content);
+        console.log('🎉 メッセージコレクター：メッセージ受信成功！');
+        console.log(`📨 受信内容: "${message.content}"`);
+        console.log(`👤 送信者: ${message.author.username}`);
 
         try {
           const reportContent = message.content.trim();
           
-          if (reportContent.length === 0) {
-            await message.reply('❌ レポート内容が空です。もう一度入力してください。');
-            return;
-          }
-
-          if (reportContent.length > 2000) {
-            await message.reply('❌ レポート内容が長すぎます（2000文字以内）。短縮してください。');
+          // バリデーション
+          const validation = this.validateReportContent(reportContent);
+          if (!validation.isValid) {
+            console.log('❌ バリデーション失敗:', validation.errors);
+            await message.reply({
+              content: `❌ ${validation.errors.join('\n')}\n\nもう一度正しい形式で入力してください。`,
+              allowedMentions: { repliedUser: false }
+            });
             return;
           }
 
           // レポートをデータベースに保存
+          console.log('💾 レポート保存開始...');
           const reportId = await this.saveReport(category, itemId, itemTitle, reportContent);
 
           if (reportId) {
+            console.log('✅ レポート保存成功:', reportId);
+            
             // 成功メッセージを表示
             const successEmbed = new EmbedBuilder()
-              .setTitle('✅ レポート記録完了！')
+              .setTitle('🎉 レポート記録完了！')
               .setColor('#4CAF50')
-              .setDescription('レポートが正常に記録されました！')
+              .setDescription('レポートが正常に記録されました！お疲れ様でした！✨')
               .addFields(
-                { name: 'レポートID', value: reportId.toString(), inline: true },
-                { name: '対象アイテム', value: `${categoryEmoji} ${itemTitle}`, inline: true },
-                { name: '記録日時', value: new Date().toLocaleString('ja-JP'), inline: true },
-                { name: '📝 記録内容', value: reportContent.slice(0, 1000) + (reportContent.length > 1000 ? '...' : ''), inline: false }
+                { name: '📝 レポートID', value: `#${reportId}`, inline: true },
+                { name: '📌 対象アイテム', value: `${categoryEmoji} ${itemTitle}`, inline: true },
+                { name: '📅 記録日時', value: new Date().toLocaleString('ja-JP'), inline: true },
+                { name: '📄 記録内容', value: this.generateReportSummary(reportContent, 500), inline: false }
               )
-              .setFooter({ text: '履歴は /reports history で確認できます' })
+              .setFooter({ text: '履歴確認: /reports history | 新しいレポート: /report' })
               .setTimestamp();
 
-            await message.reply({ embeds: [successEmbed] });
+            await message.reply({ 
+              embeds: [successEmbed],
+              allowedMentions: { repliedUser: false }
+            });
             
-            // 元のメッセージを削除（任意）
-            try {
-              await message.delete();
-            } catch (deleteError) {
-              console.log('⚠️ メッセージ削除に失敗（権限不足の可能性）');
-            }
+            // 🆕 元のメッセージを削除（権限がある場合のみ）
+            setTimeout(async () => {
+              try {
+                if (message.deletable) {
+                  await message.delete();
+                  console.log('🗑️ 元のメッセージを削除しました');
+                }
+              } catch (deleteError) {
+                console.log('⚠️ メッセージ削除スキップ（権限不足または削除済み）');
+              }
+            }, 1000);
 
           } else {
-            await message.reply('❌ レポートの保存に失敗しました。もう一度お試しください。');
+            console.log('❌ レポート保存失敗');
+            await message.reply({
+              content: '❌ レポートの保存に失敗しました。しばらく待ってから再試行してください。',
+              allowedMentions: { repliedUser: false }
+            });
           }
 
         } catch (error) {
-          console.error('❌ レポート保存エラー:', error);
-          await message.reply('❌ レポート保存中にエラーが発生しました。');
+          console.error('❌ レポート処理エラー:', error);
+          await message.reply({
+            content: '❌ レポート処理中にエラーが発生しました。管理者にお問い合わせください。',
+            allowedMentions: { repliedUser: false }
+          }).catch(console.error);
         }
+
+        // デバッグコレクターも停止
+        debugCollector.stop();
       });
 
       collector.on('end', (collected, reason) => {
-        console.log(`📬 メッセージコレクター終了: ${reason}, 収集数: ${collected.size}`);
+        console.log(`📬 メッセージコレクター終了:`);
+        console.log(`  - 理由: ${reason}`);
+        console.log(`  - 収集数: ${collected.size}`);
+        console.log(`  - 時刻: ${new Date().toLocaleString('ja-JP')}`);
+        
+        debugCollector.stop();
         
         if (reason === 'time' && collected.size === 0) {
+          console.log('⏰ タイムアウト：フォローアップメッセージ送信');
           // タイムアウトした場合
           interaction.followUp({
-            content: '⏰ レポート入力がタイムアウトしました。もう一度 `/report` コマンドをお試しください。',
+            content: '⏰ **レポート入力がタイムアウトしました**\n\n再度レポートを記録する場合は `/report` コマンドを実行してください。',
             ephemeral: true
-          }).catch(console.error);
+          }).catch(error => {
+            console.error('❌ フォローアップ送信エラー:', error);
+          });
         }
       });
 
+      // 追加のデバッグ情報
+      setTimeout(() => {
+        console.log('🕐 30秒経過 - コレクター状態チェック');
+        console.log(`  - コレクター終了済み: ${collector.ended}`);
+        console.log(`  - 収集済みメッセージ数: ${collector.collected.size}`);
+      }, 30000);
+
     } catch (error) {
       console.error('❌ レポート入力画面エラー:', error);
+      console.error('❌ エラースタック:', error.stack);
       await interaction.editReply({ 
-        content: '❌ レポート入力画面の表示中にエラーが発生しました。', 
+        content: '❌ レポート入力画面の表示中にエラーが発生しました。\n\n**エラー詳細:** ' + error.message, 
         components: [] 
       });
     }
