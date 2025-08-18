@@ -96,53 +96,72 @@ module.exports = {
 
   // 🆕 選択式 - 買いたい本から選択
   async handleBuy(interaction) {
-    try {
-      const wantToBuyBooks = await googleSheets.getBooksByStatus('want_to_buy');
+  try {
+    console.log('🔍 handleBuy 開始');
+    console.log('📊 GoogleSheets認証状態:', !!googleSheets.auth);
+    
+    const wantToBuyBooks = await googleSheets.getBooksByStatus('want_to_buy');
+    console.log(`📚 取得した買いたい本の数: ${wantToBuyBooks.length}`);
+    console.log('📋 買いたい本リスト:', wantToBuyBooks);
+    
+    if (wantToBuyBooks.length === 0) {
+      console.log('❌ 買いたい本が0冊');
+      const embed = new EmbedBuilder()
+        .setTitle('🛒 本の購入記録')
+        .setColor('#FF5722')
+        .setDescription('買いたい本がありません。')
+        .addFields(
+          { name: '💡 ヒント', value: '`/book add [タイトル] [作者] want_to_buy` で買いたい本を追加してください', inline: false }
+        );
       
-      if (wantToBuyBooks.length === 0) {
-        const embed = new EmbedBuilder()
-          .setTitle('🛒 本の購入記録')
-          .setColor('#FF5722')
-          .setDescription('買いたい本がありません。')
-          .addFields(
-            { name: '💡 ヒント', value: '`/book add [タイトル] [作者] want_to_buy` で買いたい本を追加してください', inline: false }
-          );
-        
-        await interaction.editReply({ embeds: [embed] });
-        return;
-      }
-      
-      if (wantToBuyBooks.length <= 25) {
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId('book_buy_select')
-          .setPlaceholder('購入した本を選択してください')
-          .addOptions(
-            wantToBuyBooks.map(book => ({
-              label: `${book.title}`.slice(0, 100),
-              description: `作者: ${book.author}`.slice(0, 100),
-              value: book.id.toString()
-            }))
-          );
-        
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-        
-        const embed = new EmbedBuilder()
-          .setTitle('🛒 本の購入記録')
-          .setColor('#2196F3')
-          .setDescription(`買いたい本が ${wantToBuyBooks.length} 冊あります。購入した本を選択してください。`)
-          .addFields(
-            { name: '🛒 買いたい本', value: wantToBuyBooks.map(book => `📚 ${book.title} - ${book.author}`).join('\n').slice(0, 1024), inline: false }
-          );
-        
-        await interaction.editReply({ embeds: [embed], components: [row] });
-      } else {
-        await this.handleBuyWithPagination(interaction, wantToBuyBooks);
-      }
-    } catch (error) {
-      console.error('本購入選択エラー:', error);
-      await interaction.editReply('❌ 購入本選択中にエラーが発生しました。');
+      await interaction.editReply({ embeds: [embed] });
+      return;
     }
-  },
+    
+    console.log('📝 選択メニュー作成開始');
+    
+    if (wantToBuyBooks.length <= 25) {
+      console.log('🎯 通常の選択メニューを作成');
+      
+      // 選択メニューのオプションを作成
+      const options = wantToBuyBooks.map(book => {
+        console.log(`📖 Book option: ID=${book.id}, Title="${book.title}", Author="${book.author}"`);
+        return {
+          label: `${book.title}`.slice(0, 100),
+          description: `作者: ${book.author}`.slice(0, 100),
+          value: book.id.toString()
+        };
+      });
+      
+      console.log('🎨 作成されたオプション:', options);
+      
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId('book_buy_select')
+        .setPlaceholder('購入した本を選択してください')
+        .addOptions(options);
+      
+      const row = new ActionRowBuilder().addComponents(selectMenu);
+      
+      const embed = new EmbedBuilder()
+        .setTitle('🛒 本の購入記録')
+        .setColor('#2196F3')
+        .setDescription(`買いたい本が ${wantToBuyBooks.length} 冊あります。購入した本を選択してください。`)
+        .addFields(
+          { name: '🛒 買いたい本', value: wantToBuyBooks.map(book => `📚 ${book.title} - ${book.author}`).join('\n').slice(0, 1024), inline: false }
+        );
+      
+      console.log('📤 選択メニュー付きの返信を送信');
+      await interaction.editReply({ embeds: [embed], components: [row] });
+    } else {
+      console.log('📄 ページネーション使用');
+      await this.handleBuyWithPagination(interaction, wantToBuyBooks);
+    }
+  } catch (error) {
+    console.error('❌ 本購入選択エラー:', error);
+    console.error('❌ エラースタック:', error.stack);
+    await interaction.editReply('❌ 購入本選択中にエラーが発生しました。');
+  }
+},
 
   // 🆕 選択式 - 積読本から選択
   async handleStart(interaction) {
