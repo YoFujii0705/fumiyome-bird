@@ -1,4 +1,4 @@
-// reportHandler.js の修正版 - 完全版（Part 1）
+// reportHandler.js の修正版 - アニメ対応完全版
 
 const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const GoogleSheetsService = require('../services/googleSheets');
@@ -32,7 +32,11 @@ module.exports = {
           description: '映画の感想や視聴記録',
           value: 'movie'
         },
-        { label: '📺 アニメ', discription: 'アニメの感想や視聴記録', value: 'anime' }, 
+        { 
+          label: '📺 アニメ・視聴', 
+          description: 'アニメの感想や視聴記録', 
+          value: 'anime' 
+        }, 
         {
           label: '🎯 活動・目標',
           description: '活動の進捗や振り返り',
@@ -49,15 +53,15 @@ module.exports = {
       .addFields(
         { name: '📚 本・読書', value: '読書の感想、進捗、気づきなど', inline: true },
         { name: '🎬 映画・視聴', value: '映画の感想、評価、印象など', inline: true },
-        { name: '🎯 活動・目標', value: '活動の振り返り、進捗、学びなど', inline: true },
-        { name: '📺 アニメ・視聴', value: 'アニメの感想。評価、印象など', inline: true }
+        { name: '📺 アニメ・視聴', value: 'アニメの感想、評価、印象など', inline: true },
+        { name: '🎯 活動・目標', value: '活動の振り返り、進捗、学びなど', inline: true }
       )
       .setFooter({ text: 'カテゴリを選択してください' });
 
     await interaction.editReply({ embeds: [embed], components: [row] });
   },
 
-  // アイテム選択画面
+  // アイテム選択画面（修正版）
   async showItemSelection(interaction, category) {
     try {
       let items = [];
@@ -75,16 +79,23 @@ module.exports = {
           categoryName = '映画・視聴';
           emoji = '🎬';
           break;
+        case 'anime':
+          items = await googleSheets.getAllAnimes();
+          categoryName = 'アニメ・視聴';
+          emoji = '📺';
+          break;
         case 'activity':
           items = await googleSheets.getAllActivities();
           categoryName = '活動・目標';
           emoji = '🎯';
           break;
-        case 'activity':
-          items = await googleSheets.getAllAnimes();
-          categoryName = 'アニメ・視聴';
-          emoji = '📺';
-          break;
+        default:
+          console.error('❌ 不明なカテゴリ:', category);
+          await interaction.editReply({ 
+            content: '❌ 不明なカテゴリです。', 
+            components: [] 
+          });
+          return;
       }
 
       if (items.length === 0) {
@@ -103,11 +114,24 @@ module.exports = {
       if (items.length <= 25) {
         const options = items.map(item => {
           const title = item.title || item.content || '不明';
-          const description = category === 'book' 
-            ? `作者: ${item.author || '不明'}` 
-            : category === 'movie'
-            ? `ステータス: ${this.getStatusText(item.status)}`
-            : `ステータス: ${this.getStatusText(item.status)}`;
+          let description = '';
+          
+          switch (category) {
+            case 'book':
+              description = `作者: ${item.author || '不明'}`;
+              break;
+            case 'movie':
+              description = `ステータス: ${this.getStatusText(item.status)}`;
+              break;
+            case 'anime':
+              description = `${item.watched_episodes || 0}/${item.total_episodes || 0}話 | ${this.getStatusText(item.status)}`;
+              break;
+            case 'activity':
+              description = `ステータス: ${this.getStatusText(item.status)}`;
+              break;
+            default:
+              description = 'ステータス: 不明';
+          }
 
           return {
             label: title.slice(0, 100),
@@ -128,7 +152,17 @@ module.exports = {
           .setColor('#9C27B0')
           .setDescription(`${categoryName}が ${items.length} 件あります。レポートを記録する対象を選択してください。`)
           .addFields(
-            { name: `${emoji} 登録済み${categoryName}`, value: items.slice(0, 10).map(item => `• ${item.title || item.content}`).join('\n').slice(0, 1024), inline: false }
+            { 
+              name: `${emoji} 登録済み${categoryName}`, 
+              value: items.slice(0, 10).map(item => {
+                const title = item.title || item.content || '不明';
+                if (category === 'anime') {
+                  return `• ${title} (${item.watched_episodes || 0}/${item.total_episodes || 0}話)`;
+                }
+                return `• ${title}`;
+              }).join('\n').slice(0, 1024), 
+              inline: false 
+            }
           );
 
         if (items.length > 10) {
@@ -160,11 +194,11 @@ module.exports = {
         case 'movie':
           item = await googleSheets.getMovieById(itemId);
           break;
-        case 'activity':
-          item = await googleSheets.getActivityById(itemId);
-          break;
         case 'anime':
           item = await googleSheets.getAnimeById(itemId);
+          break;
+        case 'activity':
+          item = await googleSheets.getActivityById(itemId);
           break;
       }
 
@@ -180,18 +214,27 @@ module.exports = {
       const categoryEmoji = {
         'book': '📚',
         'movie': '🎬',
-        'activity': '🎯',
-        'anime': '📺'
+        'anime': '📺',
+        'activity': '🎯'
       }[category];
+
+      // アニメの場合は進捗情報も表示
+      let itemDescription = `${categoryEmoji} ${itemTitle}`;
+      if (category === 'anime') {
+        itemDescription += ` (${item.watched_episodes || 0}/${item.total_episodes || 0}話)`;
+      }
+
+      // カテゴリ別の記録例を取得
+      const categoryInfo = this.getCategoryInfo(category);
 
       // レポート入力待機画面を表示
       const embed = new EmbedBuilder()
         .setTitle('📝 レポート記録')
-        .setColor('#9C27B0')
+        .setColor(categoryInfo.color)
         .setDescription('**次のメッセージでレポート内容を入力してください**\n\n⚠️ スラッシュコマンドではなく、通常のメッセージで送信してください')
         .addFields(
-          { name: '📌 対象アイテム', value: `${categoryEmoji} ${itemTitle}`, inline: false },
-          { name: '📝 記録内容の例', value: '```\n今日は30分間作業しました。\n思ったより大変でしたが、だんだんコツを掴んできました。\n明日はもう少し効率的に進められそうです。\n```', inline: false },
+          { name: '📌 対象アイテム', value: itemDescription, inline: false },
+          { name: '📝 記録内容の例', value: '```\n' + categoryInfo.examples.join('\n') + '\n```', inline: false },
           { name: '⚡ 重要な注意事項', value: '• **このチャンネルに普通のメッセージとして入力**\n• スラッシュコマンド（/）は使わない\n• 5分以内に送信してください', inline: false }
         )
         .setFooter({ text: '⏰ 5分でタイムアウトします | 記録は /reports history で確認可能' })
@@ -301,7 +344,7 @@ module.exports = {
               .setDescription('レポートが正常に記録されました！お疲れ様でした！✨')
               .addFields(
                 { name: '📝 レポートID', value: `#${reportId}`, inline: true },
-                { name: '📌 対象アイテム', value: `${categoryEmoji} ${itemTitle}`, inline: true },
+                { name: '📌 対象アイテム', value: itemDescription, inline: true },
                 { name: '📅 記録日時', value: new Date().toLocaleString('ja-JP'), inline: true },
                 { name: '📄 記録内容', value: this.generateReportSummary(reportContent, 500), inline: false }
               )
@@ -421,24 +464,37 @@ module.exports = {
       const categoryEmoji = {
         'book': '📚',
         'movie': '🎬', 
-        'activity': '🎯',
-        'anime': '📺'
+        'anime': '📺',
+        'activity': '🎯'
       }[category];
 
       const categoryName = {
         'book': '本・読書',
         'movie': '映画・視聴',
-        'activity': '活動・目標',
-        'anime': 'アニメ・視聴'
+        'anime': 'アニメ・視聴',
+        'activity': '活動・目標'
       }[category];
 
       const options = currentItems.map(item => {
         const title = item.title || item.content || '不明';
-        const description = category === 'book' 
-          ? `作者: ${item.author || '不明'}` 
-          : category === 'movie'
-          ? `ステータス: ${this.getStatusText(item.status)}`
-          : `ステータス: ${this.getStatusText(item.status)}`;
+        let description = '';
+        
+        switch (category) {
+          case 'book':
+            description = `作者: ${item.author || '不明'}`;
+            break;
+          case 'movie':
+            description = `ステータス: ${this.getStatusText(item.status)}`;
+            break;
+          case 'anime':
+            description = `${item.watched_episodes || 0}/${item.total_episodes || 0}話 | ${this.getStatusText(item.status)}`;
+            break;
+          case 'activity':
+            description = `ステータス: ${this.getStatusText(item.status)}`;
+            break;
+          default:
+            description = 'ステータス: 不明';
+        }
 
         return {
           label: title.slice(0, 100),
@@ -486,7 +542,17 @@ module.exports = {
         .setColor('#9C27B0')
         .setDescription(`${categoryName}が ${items.length} 件あります（${page + 1}/${totalPages}ページ）`)
         .addFields(
-          { name: `${categoryEmoji} 登録済み${categoryName}`, value: currentItems.map(item => `• ${item.title || item.content}`).join('\n').slice(0, 1024), inline: false }
+          { 
+            name: `${categoryEmoji} 登録済み${categoryName}`, 
+            value: currentItems.map(item => {
+              const title = item.title || item.content || '不明';
+              if (category === 'anime') {
+                return `• ${title} (${item.watched_episodes || 0}/${item.total_episodes || 0}話)`;
+              }
+              return `• ${title}`;
+            }).join('\n').slice(0, 1024), 
+            inline: false 
+          }
         );
       
       console.log('📤 ページネーション付きの返信を送信');
@@ -554,7 +620,7 @@ module.exports = {
     return content.slice(0, maxLength) + '...';
   },
 
-  // レポートのカテゴリ情報を取得
+  // レポートのカテゴリ情報を取得（アニメ対応）
   getCategoryInfo(category) {
     const categoryData = {
       'book': {
@@ -577,6 +643,18 @@ module.exports = {
           '• 友人にもおすすめしたい'
         ]
       },
+      'anime': {
+        name: 'アニメ・視聴',
+        emoji: '📺',
+        color: '#E91E63',
+        examples: [
+          '• 今日は第5話まで視聴',
+          '• 作画とBGMが最高だった',
+          '• キャラクターの成長が感動的',
+          '• 次回が気になる展開',
+          '• 一気に3話見てしまった'
+        ]
+      },
       'activity': {
         name: '活動・目標',
         emoji: '🎯',
@@ -585,16 +663,6 @@ module.exports = {
           '• 今日は30分間実践',
           '• 新しいテクニックを習得',
           '• 明日は応用編にチャレンジ'
-        ]
-      },
-      'anime': {
-        name: 'アニメ・視聴',
-        emoji: '📺',
-        color: '#d9aacd',
-        examples: [
-          '• 今日は一話観た',
-          '• 作画が良かった',
-          '• 一気に完走した'
         ]
       }
     };
