@@ -2157,11 +2157,24 @@ calculateReadingAnalysisLocal(bookCounts, monthlyStats) {
         !['high'].includes(article.priority) && 
         !['tech', 'business'].includes(article.category)).slice(0, 3);
       
+      // デバッグ情報を追加
+      console.log('📊 記事データ確認:', pendingArticles.slice(0, 3).map(article => ({
+        id: article.id,
+        title: article.title,
+        url: article.url,
+        hasUrl: !!article.url,
+        urlLength: article.url?.length || 0
+      })));
+
       // 高優先度記事の表示（リンク付き）
       if (highPriorityArticles.length > 0) {
         const highPriorityText = highPriorityArticles.map(article => {
-          const link = article.url ? `[${article.title}](${article.url})` : article.title;
-          return `🔴 **[${article.id}]** ${link}`;
+          console.log(`🔴 高優先度記事 [${article.id}]: URL = "${article.url}"`);
+          if (article.url && article.url.trim() && article.url !== 'null' && article.url !== 'undefined') {
+            return `🔴 **[${article.id}]** [${article.title}](${article.url.trim()})`;
+          } else {
+            return `🔴 **[${article.id}]** ${article.title} *(URLなし)*`;
+          }
         }).join('\n');
         
         embed.addFields({
@@ -2174,8 +2187,12 @@ calculateReadingAnalysisLocal(bookCounts, monthlyStats) {
       // 技術記事の表示（リンク付き）
       if (techArticles.length > 0) {
         const techText = techArticles.map(article => {
-          const link = article.url ? `[${article.title}](${article.url})` : article.title;
-          return `💻 **[${article.id}]** ${link}`;
+          console.log(`💻 技術記事 [${article.id}]: URL = "${article.url}"`);
+          if (article.url && article.url.trim() && article.url !== 'null' && article.url !== 'undefined') {
+            return `💻 **[${article.id}]** [${article.title}](${article.url.trim()})`;
+          } else {
+            return `💻 **[${article.id}]** ${article.title} *(URLなし)*`;
+          }
         }).join('\n');
         
         embed.addFields({
@@ -2188,8 +2205,12 @@ calculateReadingAnalysisLocal(bookCounts, monthlyStats) {
       // ビジネス記事の表示（リンク付き）
       if (businessArticles.length > 0) {
         const businessText = businessArticles.map(article => {
-          const link = article.url ? `[${article.title}](${article.url})` : article.title;
-          return `💼 **[${article.id}]** ${link}`;
+          console.log(`💼 ビジネス記事 [${article.id}]: URL = "${article.url}"`);
+          if (article.url && article.url.trim() && article.url !== 'null' && article.url !== 'undefined') {
+            return `💼 **[${article.id}]** [${article.title}](${article.url.trim()})`;
+          } else {
+            return `💼 **[${article.id}]** ${article.title} *(URLなし)*`;
+          }
         }).join('\n');
         
         embed.addFields({
@@ -2202,9 +2223,13 @@ calculateReadingAnalysisLocal(bookCounts, monthlyStats) {
       // その他の記事（人気・新着など）
       if (otherArticles.length > 0) {
         const otherText = otherArticles.map(article => {
-          const link = article.url ? `[${article.title}](${article.url})` : article.title;
+          console.log(`📄 その他記事 [${article.id}]: URL = "${article.url}"`);
           const categoryEmoji = this.getCategoryEmoji(article.category);
-          return `${categoryEmoji} **[${article.id}]** ${link}`;
+          if (article.url && article.url.trim() && article.url !== 'null' && article.url !== 'undefined') {
+            return `${categoryEmoji} **[${article.id}]** [${article.title}](${article.url.trim()})`;
+          } else {
+            return `${categoryEmoji} **[${article.id}]** ${article.title} *(URLなし)*`;
+          }
         }).join('\n');
         
         embed.addFields({
@@ -2235,8 +2260,12 @@ calculateReadingAnalysisLocal(bookCounts, monthlyStats) {
 
       if (weekendRecommendations.length > 0) {
         const weekendText = weekendRecommendations.map(article => {
-          const link = article.url ? `[${article.title}](${article.url})` : article.title;
-          return `🌟 **[${article.id}]** ${link}`;
+          console.log(`🌟 週末記事 [${article.id}]: URL = "${article.url}"`);
+          if (article.url && article.url.trim() && article.url !== 'null' && article.url !== 'undefined') {
+            return `🌟 **[${article.id}]** [${article.title}](${article.url.trim()})`;
+          } else {
+            return `🌟 **[${article.id}]** ${article.title} *(URLなし)*`;
+          }
         }).join('\n');
         
         embed.addFields({
