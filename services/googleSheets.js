@@ -1670,6 +1670,90 @@ async getBookCounts() {
     }
   }
 
+  /**
+ * 🆕 アニメの完走数をカウント
+ */
+async countAnimeCompletions(startDate, endDate) {
+  try {
+    const data = await this.getData('anime_master!A:K');
+    if (!data || data.length <= 1) return 0;
+
+    let count = 0;
+    const dataRows = data.slice(1); // ヘッダー行をスキップ
+
+    console.log(`📺 アニメ完走数カウント開始: completed ステータス (${startDate} ～ ${endDate})`);
+
+    dataRows.forEach((row, index) => {
+      try {
+        const status = row[7]; // H列: ステータス
+        const dateValue = row[10]; // K列: 完了日（finish_date）
+        
+        // ステータスチェック
+        if (status !== 'completed') return;
+        
+        // 日付の安全なパース
+        const parsedDate = this.parseDateSafely(dateValue);
+        if (!parsedDate) {
+          return;
+        }
+        
+        // 日付が期間内かチェック
+        const dateStr = parsedDate.toISOString().slice(0, 10);
+        if (dateStr >= startDate && dateStr <= endDate) {
+          count++;
+          // カウントした項目の詳細をログ出力
+          const title = row[2] || 'タイトル不明';
+          console.log(`✅ anime_master [${count}] "${title}" - ${dateStr}`);
+        }
+        
+      } catch (rowError) {
+        console.error(`anime_master 行${index + 2} 処理エラー:`, rowError.message);
+      }
+    });
+
+    console.log(`📺 anime_master completed 最終カウント: ${count}`);
+    return count;
+  } catch (error) {
+    console.error('anime_master完走数カウントエラー:', error);
+    return 0;
+  }
+}
+
+/**
+ * 🆕 月次完走アニメのタイトル一覧を取得
+ */
+async getMonthlyAnimeTitles() {
+  try {
+    const currentDate = new Date();
+    const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const firstDayStr = firstDayOfMonth.toISOString().slice(0, 10);
+    
+    const data = await this.getData('anime_master!A:K');
+    if (!data || data.length <= 1) return [];
+
+    const monthlyAnimes = data.slice(1)
+      .filter(row => {
+        const status = row[7]; // H列: ステータス
+        const finishDate = row[10]; // K列: 完了日
+        
+        if (status !== 'completed' || !finishDate) return false;
+        
+        const parsedDate = this.parseDateSafely(finishDate);
+        if (!parsedDate) return false;
+        
+        const dateStr = parsedDate.toISOString().slice(0, 10);
+        return dateStr >= firstDayStr && dateStr <= currentDate.toISOString().slice(0, 10);
+      })
+      .map(row => row[2]); // C列: タイトル
+    
+    console.log(`📺 今月完走したアニメ: ${monthlyAnimes.length}本`);
+    return monthlyAnimes;
+  } catch (error) {
+    console.error('月次完走アニメタイトル取得エラー:', error);
+    return [];
+  }
+}
+
   // === 活動関連のメソッド ===
 
   /**
@@ -2253,55 +2337,114 @@ async deleteReport(reportId) {
   // === 統計関連のメソッド ===
 
   /**
-   * 週次統計を取得
-   */
-  async getWeeklyStats() {
-    try {
-      console.log('📊 週次統計取得開始');
-      
-      // 今週の月曜日から日曜日までの期間を計算
-      const now = new Date();
-      const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - dayOfWeek + 1); // 月曜日
-      startOfWeek.setHours(0, 0, 0, 0);
-      
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6); // 日曜日
-      endOfWeek.setHours(23, 59, 59, 999);
+ * 週次統計を取得（アニメ対応版）
+ */
+async getWeeklyStats() {
+  try {
+    console.log('📊 週次統計取得開始（アニメ含む）');
+    
+    // 今週の月曜日から日曜日までの期間を計算
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - dayOfWeek + 1); // 月曜日
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // 日曜日
+    endOfWeek.setHours(23, 59, 59, 999);
 
-      // 指定期間の統計を取得
-      const stats = await this.getStatsForDateRange(startOfWeek, endOfWeek);
-      console.log('✅ 週次統計取得完了:', stats);
-      return stats;
-    } catch (error) {
-      console.error('週次統計取得エラー:', error);
-      return { finishedBooks: 0, watchedMovies: 0, completedActivities: 0, reports: 0 };
-    }
+    const startDateStr = startOfWeek.toISOString().slice(0, 10);
+    const endDateStr = endOfWeek.toISOString().slice(0, 10);
+
+    // 本の完了数
+    const finishedBooks = await this.countCompletions('books_master', 'finished', startDateStr, endDateStr);
+    
+    // 映画の視聴完了数
+    const watchedMovies = await this.countCompletions('movies_master', 'watched', startDateStr, endDateStr);
+    
+    // 🆕 アニメの完走数
+    const completedAnimes = await this.countAnimeCompletions(startDateStr, endDateStr);
+    
+    // 活動の完了数
+    const completedActivities = await this.countCompletions('activities_master', 'done', startDateStr, endDateStr);
+    
+    // レポート数
+    const reports = await this.countReports(startDateStr, endDateStr);
+    
+    const result = {
+      finishedBooks,
+      watchedMovies,
+      completedAnimes, // 🆕 アニメ追加
+      completedActivities,
+      reports
+    };
+    
+    console.log('✅ 週次統計取得完了（アニメ含む）:', result);
+    return result;
+  } catch (error) {
+    console.error('週次統計取得エラー:', error);
+    return { 
+      finishedBooks: 0, 
+      watchedMovies: 0, 
+      completedAnimes: 0, // 🆕 アニメ追加
+      completedActivities: 0, 
+      reports: 0 
+    };
   }
-
+}
   /**
-   * 月次統計を取得
-   */
-  async getMonthlyStats() {
-    try {
-      console.log('📊 月次統計取得開始');
-      
-      // 今月の1日から月末までの期間を計算
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      endOfMonth.setHours(23, 59, 59, 999);
+ * 月次統計を取得（アニメ対応版）
+ */
+async getMonthlyStats() {
+  try {
+    console.log('📊 月次統計取得開始（アニメ含む）');
+    
+    // 今月の1日から月末までの期間を計算
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    endOfMonth.setHours(23, 59, 59, 999);
 
-      // 指定期間の統計を取得
-      const stats = await this.getStatsForDateRange(startOfMonth, endOfMonth);
-      console.log('✅ 月次統計取得完了:', stats);
-      return stats;
-    } catch (error) {
-      console.error('月次統計取得エラー:', error);
-      return { finishedBooks: 0, watchedMovies: 0, completedActivities: 0, reports: 0 };
-    }
+    const startDateStr = startOfMonth.toISOString().slice(0, 10);
+    const endDateStr = endOfMonth.toISOString().slice(0, 10);
+
+    // 本の完了数
+    const finishedBooks = await this.countCompletions('books_master', 'finished', startDateStr, endDateStr);
+    
+    // 映画の視聴完了数
+    const watchedMovies = await this.countCompletions('movies_master', 'watched', startDateStr, endDateStr);
+    
+    // 🆕 アニメの完走数
+    const completedAnimes = await this.countAnimeCompletions(startDateStr, endDateStr);
+    
+    // 活動の完了数
+    const completedActivities = await this.countCompletions('activities_master', 'done', startDateStr, endDateStr);
+    
+    // レポート数
+    const reports = await this.countReports(startDateStr, endDateStr);
+    
+    const result = {
+      finishedBooks,
+      watchedMovies,
+      completedAnimes, // 🆕 アニメ追加
+      completedActivities,
+      reports
+    };
+    
+    console.log('✅ 月次統計取得完了（アニメ含む）:', result);
+    return result;
+  } catch (error) {
+    console.error('月次統計取得エラー:', error);
+    return { 
+      finishedBooks: 0, 
+      watchedMovies: 0, 
+      completedAnimes: 0, // 🆕 アニメ追加
+      completedActivities: 0, 
+      reports: 0 
+    };
   }
+}
 
   /**
    * 期間統計取得メソッド
