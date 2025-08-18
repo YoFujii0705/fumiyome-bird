@@ -206,12 +206,15 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
       const channel = this.getNotificationChannel();
       if (!channel) return;
 
-      const [readingBooks, wantToReadBooks, plannedActivities] = await Promise.all([
+      const [readingBooks, wantToReadBooks, plannedActivities, watchingAnimes, wantToWatchAnimes, wantToWatchMovies] = await Promise.all([
         this.googleSheets.getCurrentReadingBooks(),
         this.googleSheets.getWantToReadBooks(),
         this.googleSheets.getActivities().then(activities => 
           activities.filter(activity => activity.includes('(planned)')).slice(0, 5)
-        )
+        ),
+        this.googleSheets.getAnimesByStatus('watching'),
+        this.googleSheets.getAnimesByStatus('want_to_watch'),
+        this.googleSheets.getWantToWatchMovies()
       ]);
 
       const embed = new EmbedBuilder()
@@ -220,6 +223,7 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         .setColor('#FFD700')
         .setTimestamp();
 
+      // 読書中の本
       if (readingBooks.length > 0) {
         const bookList = readingBooks.map(book => `📖 ${book.title} - ${book.author}`).join('\n');
         embed.addFields({
@@ -229,16 +233,45 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         });
       }
 
-      if (wantToReadBooks.length > 0) {
-        const wantToReadList = wantToReadBooks.slice(0, 3)
-          .map(book => `📋 ${book.title} - ${book.author}`).join('\n');
+      // 視聴中のアニメ
+      if (watchingAnimes.length > 0) {
+        const animeList = watchingAnimes.slice(0, 3).map(anime => 
+          `📺 ${anime.title} (${anime.watched_episodes}/${anime.total_episodes}話)`
+        ).join('\n');
         embed.addFields({
-          name: '📋 積読本（おすすめ）',
-          value: wantToReadList,
+          name: '📺 視聴中のアニメ',
+          value: animeList,
           inline: false
         });
       }
 
+      // 今日のおすすめ（複数カテゴリ統合）
+      const recommendations = [];
+      
+      if (wantToReadBooks.length > 0) {
+        recommendations.push(...wantToReadBooks.slice(0, 2)
+          .map(book => `📋 ${book.title} - ${book.author}`));
+      }
+      
+      if (wantToWatchAnimes.length > 0) {
+        recommendations.push(...wantToWatchAnimes.slice(0, 2)
+          .map(anime => `🍿 ${anime.title} (${anime.total_episodes}話)`));
+      }
+      
+      if (wantToWatchMovies.length > 0) {
+        recommendations.push(...wantToWatchMovies.slice(0, 2)
+          .map(movie => `🎬 ${movie}`));
+      }
+
+      if (recommendations.length > 0) {
+        embed.addFields({
+          name: '🌟 今日のおすすめ',
+          value: recommendations.slice(0, 4).join('\n'),
+          inline: false
+        });
+      }
+
+      // 今日の活動候補
       if (plannedActivities.length > 0) {
         const activityList = plannedActivities.slice(0, 3)
           .map(activity => {
@@ -255,6 +288,7 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
 
       const dailyGoals = [
         '📚 読書時間を確保する',
+        '📺 アニメの続きを楽しむ',
         '📝 日報を記録する',
         '🎯 一つでも活動を完了する',
         '💭 新しい発見を記録する'
@@ -269,7 +303,7 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
       embed.setFooter({ text: '今日も一歩ずつ前進していきましょう！' });
 
       await channel.send({ embeds: [embed] });
-      console.log('☀️ 朝の挨拶を送信しました');
+      console.log('☀️ 朝の挨拶を送信しました（アニメ対応版）');
 
     } catch (error) {
       console.error('朝の挨拶送信エラー:', error);
@@ -277,123 +311,145 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
   }
 
   async sendDailyReportReminder() {
-  try {
-    const channel = this.getNotificationChannel();
-    if (!channel) return;
+    try {
+      const channel = this.getNotificationChannel();
+      if (!channel) return;
 
-    const todayReports = await this.googleSheets.getRecentReports(1);
-    
-    // デバッグ用ログ
-    console.log('📝 取得したレポートデータ:', JSON.stringify(todayReports, null, 2));
-
-    const embed = new EmbedBuilder()
-      .setColor(todayReports.length > 0 ? '#4CAF50' : '#FF9800')
-      .setTimestamp();
-
-    if (todayReports.length > 0) {
-      embed
-        .setTitle('🎉 今日もお疲れ様でした！')
-        .setDescription(`今日は ${todayReports.length} 件のレポートを記録されましたね！`)
-        .setFooter({ text: '継続は力なり！素晴らしい習慣ですね！' });
-
-      // レポート内容の表示を改善（アイテム情報付き）
-      const reportSummary = await Promise.all(todayReports.map(async (report, index) => {
-        const emoji = { 
-          book: '📚', 
-          movie: '🎬', 
-          activity: '🎯' 
-        }[report.category] || '📝';
-        
-        // デバッグ用ログ
-        console.log(`📝 レポート${index + 1}の詳細:`, {
-          category: report.category,
-          content: report.content,
-          item_id: report.item_id,
-          user_id: report.user_id
-        });
-        
-        // アイテム情報を取得
-        let itemInfo = '';
-        if (report.item_id && report.category) {
-          try {
-            const item = await this.googleSheets.getItemInfo(report.category, report.item_id);
-            if (item) {
-              if (report.category === 'book') {
-                itemInfo = `『${item.title}』(${item.author}) - `;
-              } else if (report.category === 'movie') {
-                itemInfo = `『${item.title}』 - `;
-              } else if (report.category === 'activity') {
-                itemInfo = `「${item.content}」 - `;
-              }
-            }
-          } catch (error) {
-            console.log(`アイテム情報取得エラー (${report.category} ID:${report.item_id}):`, error.message);
-          }
-        }
-        
-        // 文字数制限を調整（アイテム情報を含めて）
-        const maxContentLength = todayReports.length === 1 ? 150 : 100;
-        const content = report.content || 'レポート内容なし';
-        
-        let displayContent;
-        if (content.length <= maxContentLength) {
-          displayContent = content;
-        } else {
-          displayContent = content.substring(0, maxContentLength) + '...';
-        }
-        
-        return `${emoji} **${index + 1}.** ${itemInfo}${displayContent}`;
-      }));
+      const todayReports = await this.googleSheets.getRecentReports(1);
       
-      const finalReportSummary = reportSummary.join('\n\n');
+      console.log('📝 取得したレポートデータ:', JSON.stringify(todayReports, null, 2));
 
-      embed.addFields({
-        name: '📝 今日の記録',
-        value: finalReportSummary,
-        inline: false
-      });
+      const embed = new EmbedBuilder()
+        .setColor(todayReports.length > 0 ? '#4CAF50' : '#FF9800')
+        .setTimestamp();
 
-      // レポート数が多い場合の追加情報
-      if (todayReports.length > 3) {
+      if (todayReports.length > 0) {
+        embed
+          .setTitle('🎉 今日もお疲れ様でした！')
+          .setDescription(`今日は ${todayReports.length} 件のレポートを記録されましたね！`)
+          .setFooter({ text: '継続は力なり！素晴らしい習慣ですね！' });
+
+        // レポート内容の表示を改善（アニメ情報付き）
+        const reportSummary = await Promise.all(todayReports.map(async (report, index) => {
+          const emoji = { 
+            book: '📚', 
+            movie: '🎬',
+            anime: '📺',
+            activity: '🎯' 
+          }[report.category] || '📝';
+          
+          console.log(`📝 レポート${index + 1}の詳細:`, {
+            category: report.category,
+            content: report.content,
+            item_id: report.item_id,
+            user_id: report.user_id
+          });
+          
+          // アイテム情報を取得
+          let itemInfo = '';
+          if (report.item_id && report.category) {
+            try {
+              let item = null;
+              switch (report.category) {
+                case 'book':
+                  item = await this.googleSheets.getBookById(report.item_id);
+                  if (item) {
+                    itemInfo = `『${item.title}』(${item.author}) - `;
+                  }
+                  break;
+                case 'movie':
+                  item = await this.googleSheets.getMovieById(report.item_id);
+                  if (item) {
+                    itemInfo = `『${item.title}』 - `;
+                  }
+                  break;
+                case 'anime':
+                  item = await this.googleSheets.getAnimeById(report.item_id);
+                  if (item) {
+                    itemInfo = `『${item.title}』(${item.watched_episodes}/${item.total_episodes}話) - `;
+                  }
+                  break;
+                case 'activity':
+                  item = await this.googleSheets.getActivityById(report.item_id);
+                  if (item) {
+                    itemInfo = `「${item.content}」 - `;
+                  }
+                  break;
+              }
+            } catch (error) {
+              console.log(`アイテム情報取得エラー (${report.category} ID:${report.item_id}):`, error.message);
+            }
+          }
+          
+          // 文字数制限を調整（アイテム情報を含めて）
+          const maxContentLength = todayReports.length === 1 ? 150 : 100;
+          const content = report.content || 'レポート内容なし';
+          
+          let displayContent;
+          if (content.length <= maxContentLength) {
+            displayContent = content;
+          } else {
+            displayContent = content.substring(0, maxContentLength) + '...';
+          }
+          
+          return `${emoji} **${index + 1}.** ${itemInfo}${displayContent}`;
+        }));
+        
+        const finalReportSummary = reportSummary.join('\n\n');
+
         embed.addFields({
-          name: '💡 記録詳細',
-          value: `本日は特に活発な記録日でした！${todayReports.length}件の記録、素晴らしいですね。`,
+          name: '📝 今日の記録',
+          value: finalReportSummary,
           inline: false
         });
+
+        // レポート数が多い場合の追加情報
+        if (todayReports.length > 3) {
+          embed.addFields({
+            name: '💡 記録詳細',
+            value: `本日は特に活発な記録日でした！${todayReports.length}件の記録、素晴らしいですね。`,
+            inline: false
+          });
+        }
+
+      } else {
+        embed
+          .setTitle('📝 日報記録のリマインド')
+          .setDescription('今日の活動を振り返って、記録してみませんか？')
+          .addFields(
+            { name: '📚 読書記録', value: '`/report` → 本を選択', inline: true },
+            { name: '🎬 映画記録', value: '`/report` → 映画を選択', inline: true },
+            { name: '📺 アニメ記録', value: '`/report` → アニメを選択', inline: true },
+            { name: '🎯 活動記録', value: '`/report` → 活動を選択', inline: true },
+            { name: '💡 記録のコツ', value: '• 短くても OK\n• 感じたことを素直に\n• 継続が一番大切', inline: false }
+          )
+          .setFooter({ text: '小さな記録の積み重ねが大きな成長につながります！' });
       }
 
-    } else {
-      embed
-        .setTitle('📝 日報記録のリマインド')
-        .setDescription('今日の活動を振り返って、記録してみませんか？')
-        .addFields(
-          { name: '📚 読書記録', value: '`/report book [ID] [感想・進捗]`', inline: true },
-          { name: '🎬 映画記録', value: '`/report movie [ID] [感想・評価]`', inline: true },
-          { name: '🎯 活動記録', value: '`/report activity [ID] [進捗・反省]`', inline: true },
-          { name: '💡 記録のコツ', value: '• 短くても OK\n• 感じたことを素直に\n• 継続が一番大切', inline: false }
-        )
-        .setFooter({ text: '小さな記録の積み重ねが大きな成長につながります！' });
+      await channel.send({ embeds: [embed] });
+      console.log('📝 日報リマインドを送信しました（アニメ対応版）');
+
+    } catch (error) {
+      console.error('日報リマインド送信エラー:', error);
     }
-
-    await channel.send({ embeds: [embed] });
-    console.log('📝 日報リマインドを送信しました');
-
-  } catch (error) {
-    console.error('日報リマインド送信エラー:', error);
   }
-}
 
   async sendWeeklyReport() {
     try {
       const channel = this.getNotificationChannel();
       if (!channel) return;
 
-      const [weeklyStats, recentReports] = await Promise.all([
+      const [weeklyStats, recentReports, animeStats] = await Promise.all([
         this.googleSheets.getWeeklyStats(),
-        this.googleSheets.getRecentReports(7)
+        this.googleSheets.getRecentReports(7),
+        this.googleSheets.getAnimeCounts()
       ]);
 
-      const totalCompleted = weeklyStats.finishedBooks + weeklyStats.watchedMovies + weeklyStats.completedActivities;
+      // アニメの週次統計を計算（簡易版）
+      const weeklyAnimeCompleted = await this.calculateWeeklyAnimeCompleted();
+      const weeklyAnimeEpisodes = await this.calculateWeeklyAnimeEpisodes();
+
+      const totalCompleted = weeklyStats.finishedBooks + weeklyStats.watchedMovies + weeklyStats.completedActivities + weeklyAnimeCompleted;
 
       const embed = new EmbedBuilder()
         .setTitle('📅 今週の活動レポート')
@@ -402,19 +458,23 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         .addFields(
           { name: '📚 読了した本', value: `${weeklyStats.finishedBooks}冊`, inline: true },
           { name: '🎬 視聴した映画', value: `${weeklyStats.watchedMovies}本`, inline: true },
+          { name: '📺 完走したアニメ', value: `${weeklyAnimeCompleted}本`, inline: true },
           { name: '🎯 完了した活動', value: `${weeklyStats.completedActivities}件`, inline: true },
-          { name: '📝 記録した日報', value: `${recentReports.length}件`, inline: true }
+          { name: '📝 記録した日報', value: `${recentReports.length}件`, inline: true },
+          { name: '📺 視聴した話数', value: `${weeklyAnimeEpisodes}話`, inline: true }
         )
         .setTimestamp();
 
-      // 週次目標との比較
-      const weeklyGoals = { books: 2, movies: 3, activities: 5, reports: 7 };
+      // 週次目標との比較（アニメ追加）
+      const weeklyGoals = { books: 2, movies: 3, animes: 1, activities: 5, reports: 7, episodes: 10 };
       const achievements = [];
       
       if (weeklyStats.finishedBooks >= weeklyGoals.books) achievements.push('📚 読書目標達成！');
       if (weeklyStats.watchedMovies >= weeklyGoals.movies) achievements.push('🎬 映画目標達成！');
+      if (weeklyAnimeCompleted >= weeklyGoals.animes) achievements.push('📺 アニメ完走目標達成！');
       if (weeklyStats.completedActivities >= weeklyGoals.activities) achievements.push('🎯 活動目標達成！');
       if (recentReports.length >= weeklyGoals.reports) achievements.push('📝 日報目標達成！');
+      if (weeklyAnimeEpisodes >= weeklyGoals.episodes) achievements.push('📺 話数視聴目標達成！');
 
       if (achievements.length > 0) {
         embed.addFields({
@@ -424,11 +484,29 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         });
       }
 
+      // 現在の視聴状況
+      const currentStatus = [];
+      if (animeStats.watching > 0) {
+        currentStatus.push(`📺 視聴中のアニメ: ${animeStats.watching}本`);
+      }
+      if (animeStats.wantToWatch > 0) {
+        currentStatus.push(`🍿 観たいアニメ: ${animeStats.wantToWatch}本`);
+      }
+
+      if (currentStatus.length > 0) {
+        embed.addFields({
+          name: '📊 現在のアニメ状況',
+          value: currentStatus.join('\n'),
+          inline: false
+        });
+      }
+
       const encouragements = [
         'お疲れ様でした！来週も頑張りましょう！',
         '素晴らしい一週間でした！',
         '継続的な活動、素晴らしいですね！',
-        '着実に前進していますね！'
+        '着実に前進していますね！',
+        'アニメも読書も活動も充実していますね！'
       ];
 
       embed.setFooter({ 
@@ -436,24 +514,27 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
       });
 
       await channel.send({ embeds: [embed] });
-      console.log('📅 週次レポートを送信しました');
+      console.log('📅 週次レポートを送信しました（アニメ対応版）');
 
     } catch (error) {
       console.error('週次レポート送信エラー:', error);
     }
   }
-
+  
   async sendMonthlyReport() {
     try {
       const channel = this.getNotificationChannel();
       if (!channel) return;
 
-      const [monthlyStats, bookTitles] = await Promise.all([
+      const [monthlyStats, bookTitles, animeStats, monthlyAnimeCompleted, monthlyAnimeEpisodes] = await Promise.all([
         this.googleSheets.getMonthlyStats(),
-        this.googleSheets.getMonthlyBookTitles()
+        this.googleSheets.getMonthlyBookTitles(),
+        this.googleSheets.getAnimeCounts(),
+        this.calculateMonthlyAnimeCompleted(),
+        this.calculateMonthlyAnimeEpisodes()
       ]);
 
-      const totalCompleted = monthlyStats.finishedBooks + monthlyStats.watchedMovies + monthlyStats.completedActivities;
+      const totalCompleted = monthlyStats.finishedBooks + monthlyStats.watchedMovies + monthlyStats.completedActivities + monthlyAnimeCompleted;
 
       const embed = new EmbedBuilder()
         .setTitle('🗓️ 今月の活動レポート')
@@ -462,14 +543,17 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         .addFields(
           { name: '📚 読了冊数', value: `${monthlyStats.finishedBooks}冊`, inline: true },
           { name: '🎬 視聴本数', value: `${monthlyStats.watchedMovies}本`, inline: true },
+          { name: '📺 完走アニメ', value: `${monthlyAnimeCompleted}本`, inline: true },
           { name: '🎯 完了活動', value: `${monthlyStats.completedActivities}件`, inline: true },
-          { name: '📝 日報件数', value: `${monthlyStats.reports}件`, inline: true }
+          { name: '📝 日報件数', value: `${monthlyStats.reports}件`, inline: true },
+          { name: '📺 視聴話数', value: `${monthlyAnimeEpisodes}話`, inline: true }
         )
         .setTimestamp();
 
+      // 読了した本の一覧
       if (bookTitles.length > 0) {
-        const displayTitles = bookTitles.slice(0, 8);
-        const moreTitles = bookTitles.length - 8;
+        const displayTitles = bookTitles.slice(0, 6);
+        const moreTitles = bookTitles.length - 6;
         
         let titlesList = displayTitles.map((title, index) => `${index + 1}. ${title}`).join('\n');
         if (moreTitles > 0) {
@@ -479,6 +563,41 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         embed.addFields({
           name: '🏆 今月読了した本',
           value: titlesList,
+          inline: false
+        });
+      }
+
+      // 完走したアニメの一覧
+      const completedAnimes = await this.getMonthlyCompletedAnimes();
+      if (completedAnimes.length > 0) {
+        const displayAnimes = completedAnimes.slice(0, 6);
+        const moreAnimes = completedAnimes.length - 6;
+        
+        let animesList = displayAnimes.map((anime, index) => 
+          `${index + 1}. ${anime.title} (${anime.total_episodes}話)`
+        ).join('\n');
+        if (moreAnimes > 0) {
+          animesList += `\n... 他${moreAnimes}本`;
+        }
+        
+        embed.addFields({
+          name: '🎉 今月完走したアニメ',
+          value: animesList,
+          inline: false
+        });
+      }
+
+      // アニメ視聴統計
+      if (animeStats.total > 0) {
+        const animeCompletionRate = Math.round((animeStats.completed / animeStats.total) * 100);
+        embed.addFields({
+          name: '📺 アニメ視聴統計',
+          value: [
+            `完走率: ${animeCompletionRate}%`,
+            `視聴中: ${animeStats.watching}本`,
+            `観たい: ${animeStats.wantToWatch}本`,
+            `中断: ${animeStats.dropped}本`
+          ].join(' | '),
           inline: false
         });
       }
@@ -497,13 +616,12 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
       embed.setFooter({ text: `素晴らしい1ヶ月でした！${nextMonthName}も頑張りましょう！` });
 
       await channel.send({ embeds: [embed] });
-      console.log('🗓️ 月次レポートを送信しました');
+      console.log('🗓️ 月次レポートを送信しました（アニメ対応版）');
 
     } catch (error) {
       console.error('月次レポート送信エラー:', error);
     }
   }
-
   // =====================================
   // 🔍 メンテナンス・整理通知メソッド
   // =====================================
@@ -513,9 +631,14 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
       const channel = this.getNotificationChannel();
       if (!channel) return;
 
-      const abandonedItems = await this.googleSheets.getAbandonedItems(7);
+      const [abandonedItems, abandonedAnimes] = await Promise.all([
+        this.googleSheets.getAbandonedItems(7),
+        this.getAbandonedAnimes(7)
+      ]);
 
-      if (abandonedItems.movies.length === 0 && abandonedItems.activities.length === 0) {
+      const totalAbandoned = abandonedItems.movies.length + abandonedItems.activities.length + abandonedAnimes.length;
+
+      if (totalAbandoned === 0) {
         return;
       }
 
@@ -525,6 +648,19 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         .setColor('#FF5722')
         .setTimestamp();
 
+      // 放置されたアニメ
+      if (abandonedAnimes.length > 0) {
+        const animeList = abandonedAnimes.slice(0, 5)
+          .map(anime => `📺 [${anime.id}] ${anime.title} (${anime.watched_episodes}/${anime.total_episodes}話)`).join('\n');
+        
+        embed.addFields({
+          name: `📺 視聴中断中のアニメ（${abandonedAnimes.length}本）`,
+          value: animeList,
+          inline: false
+        });
+      }
+
+      // 放置された映画
       if (abandonedItems.movies.length > 0) {
         const movieList = abandonedItems.movies.slice(0, 5)
           .map(movie => `🎬 [${movie.id}] ${movie.title}`).join('\n');
@@ -536,6 +672,7 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         });
       }
 
+      // 放置された活動
       if (abandonedItems.activities.length > 0) {
         const activityList = abandonedItems.activities.slice(0, 5)
           .map(activity => `🎯 [${activity.id}] ${activity.content}`).join('\n');
@@ -549,17 +686,214 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
 
       embed.addFields({
         name: '💡 対処方法',
-        value: '• 実行: `/movie watch` または `/activity done`\n• 見送り: `/movie skip` または `/activity skip`\n• 内容更新: 新しいアイテムとして再登録',
+        value: [
+          '📺 アニメ: `/anime watch` で話数視聴、`/anime finish` で完走、`/anime drop` で中断',
+          '🎬 映画: `/movie watch` または `/movie skip`',
+          '🎯 活動: `/activity done` または `/activity skip`',
+          '📝 感想: `/report` で記録・振り返り',
+          '🔄 整理: 不要なアイテムの見直し'
+        ].join('\n'),
         inline: false
       });
 
       embed.setFooter({ text: '定期的な整理で効率的な管理を！' });
 
       await channel.send({ embeds: [embed] });
-      console.log('⚠️ 放置アイテム通知を送信しました');
+      console.log('⚠️ 放置アイテム通知を送信しました（アニメ対応版）');
 
     } catch (error) {
       console.error('放置アイテムチェックエラー:', error);
+    }
+  }
+
+   // =====================================
+  // 🆕 アニメ関連ヘルパーメソッド
+  // =====================================
+
+  /**
+   * 週次でのアニメ完走数を計算
+   */
+  async calculateWeeklyAnimeCompleted() {
+    try {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const oneWeekAgoStr = oneWeekAgo.toISOString().slice(0, 10);
+      
+      // 簡易実装：過去7日間に完走されたアニメ数を取得
+      // 実際の実装では finish_date を確認
+      const allAnimes = await this.googleSheets.getAllAnimes();
+      
+      return allAnimes.filter(anime => {
+        if (anime.status !== 'completed') return false;
+        if (!anime.finish_date) return false;
+        
+        try {
+          const finishDate = new Date(anime.finish_date);
+          return finishDate >= oneWeekAgo;
+        } catch {
+          return false;
+        }
+      }).length;
+    } catch (error) {
+      console.error('週次アニメ完走数計算エラー:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * 週次でのアニメ視聴話数を計算
+   */
+  async calculateWeeklyAnimeEpisodes() {
+    try {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const oneWeekAgoStr = oneWeekAgo.toISOString().slice(0, 10);
+      
+      // エピソードログから過去7日間の視聴話数を計算
+      // 簡易実装として、全アニメの進捗から推定
+      const watchingAnimes = await this.googleSheets.getAnimesByStatus('watching');
+      const completedAnimes = await this.googleSheets.getAnimesByStatus('completed');
+      
+      // 簡易推定：視聴中アニメ×2話 + 完走アニメの最終話数
+      let weeklyEpisodes = watchingAnimes.length * 2;
+      
+      for (const anime of completedAnimes) {
+        if (anime.finish_date) {
+          try {
+            const finishDate = new Date(anime.finish_date);
+            if (finishDate >= oneWeekAgo) {
+              // この週に完走されたアニメの最後の数話
+              weeklyEpisodes += Math.min(anime.total_episodes, 5);
+            }
+          } catch {
+            // 日付パースエラーは無視
+          }
+        }
+      }
+      
+      return weeklyEpisodes;
+    } catch (error) {
+      console.error('週次アニメ話数計算エラー:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * 月次でのアニメ完走数を計算
+   */
+  async calculateMonthlyAnimeCompleted() {
+    try {
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      const oneMonthAgoStr = oneMonthAgo.toISOString().slice(0, 10);
+      
+      const allAnimes = await this.googleSheets.getAllAnimes();
+      
+      return allAnimes.filter(anime => {
+        if (anime.status !== 'completed') return false;
+        if (!anime.finish_date) return false;
+        
+        try {
+          const finishDate = new Date(anime.finish_date);
+          return finishDate >= oneMonthAgo;
+        } catch {
+          return false;
+        }
+      }).length;
+    } catch (error) {
+      console.error('月次アニメ完走数計算エラー:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * 月次でのアニメ視聴話数を計算
+   */
+  async calculateMonthlyAnimeEpisodes() {
+    try {
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      
+      // 簡易推定：視聴中アニメ×8話 + 完走アニメの話数
+      const watchingAnimes = await this.googleSheets.getAnimesByStatus('watching');
+      const completedAnimes = await this.googleSheets.getAnimesByStatus('completed');
+      
+      let monthlyEpisodes = watchingAnimes.reduce((sum, anime) => 
+        sum + (anime.watched_episodes || 0), 0
+      );
+      
+      for (const anime of completedAnimes) {
+        if (anime.finish_date) {
+          try {
+            const finishDate = new Date(anime.finish_date);
+            if (finishDate >= oneMonthAgo) {
+              monthlyEpisodes += anime.total_episodes || 0;
+            }
+          } catch {
+            // 日付パースエラーは無視
+          }
+        }
+      }
+      
+      return monthlyEpisodes;
+    } catch (error) {
+      console.error('月次アニメ話数計算エラー:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * 今月完走したアニメ一覧を取得
+   */
+  async getMonthlyCompletedAnimes() {
+    try {
+      const oneMonthAgo = new Date();
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+      
+      const allAnimes = await this.googleSheets.getAllAnimes();
+      
+      return allAnimes.filter(anime => {
+        if (anime.status !== 'completed') return false;
+        if (!anime.finish_date) return false;
+        
+        try {
+          const finishDate = new Date(anime.finish_date);
+          return finishDate >= oneMonthAgo;
+        } catch {
+          return false;
+        }
+      });
+    } catch (error) {
+      console.error('月次完走アニメ取得エラー:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 放置されたアニメを取得
+   */
+  async getAbandonedAnimes(daysAgo = 7) {
+    try {
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() - daysAgo);
+      const targetDateStr = targetDate.toISOString().slice(0, 10);
+      
+      const watchingAnimes = await this.googleSheets.getAnimesByStatus('watching');
+      
+      return watchingAnimes.filter(anime => {
+        // updated_at がない、または指定日数より古い場合は放置されているとみなす
+        if (!anime.updated_at) return true;
+        
+        try {
+          const updateDate = new Date(anime.updated_at);
+          return updateDate.toISOString().slice(0, 10) <= targetDateStr;
+        } catch {
+          return true; // 日付パースエラーの場合も放置扱い
+        }
+      });
+    } catch (error) {
+      console.error('放置アニメ取得エラー:', error);
+      return [];
     }
   }
 
@@ -1148,81 +1482,344 @@ createGoalsProgressEmbedData(user, goals, currentStats, progressAnalysis, report
   }
 
   async sendMonthlyBooksStatistics() {
-  try {
-    const channel = this.getNotificationChannel();
-    if (!channel) return;
+    try {
+      const channel = this.getNotificationChannel();
+      if (!channel) return;
 
-    console.log('📚 月末読書統計送信開始...');
+      console.log('📚 月末読書・アニメ統計送信開始...');
 
-    const [bookCounts, monthlyStats, bookTitles] = await Promise.all([
-      this.googleSheets.getBookCounts(),
-      this.googleSheets.getMonthlyStats(),
-      this.googleSheets.getMonthlyBookTitles()
-    ]);
+      const [bookCounts, monthlyStats, bookTitles, animeStats, monthlyAnimeCompleted, monthlyAnimeEpisodes] = await Promise.all([
+        this.googleSheets.getBookCounts(),
+        this.googleSheets.getMonthlyStats(),
+        this.googleSheets.getMonthlyBookTitles(),
+        this.googleSheets.getAnimeCounts(),
+        this.calculateMonthlyAnimeCompleted(),
+        this.calculateMonthlyAnimeEpisodes()
+      ]);
 
-    console.log('📊 取得データ確認:', { bookCounts, monthlyStats, bookTitlesCount: bookTitles.length });
+      console.log('📊 取得データ確認:', { 
+        bookCounts, 
+        monthlyStats, 
+        bookTitlesCount: bookTitles.length,
+        animeStats,
+        monthlyAnimeCompleted,
+        monthlyAnimeEpisodes
+      });
 
-    // 読書分析を自前で計算
-    const readingAnalysis = this.calculateReadingAnalysisLocal(bookCounts, monthlyStats);
-    const readingPace = this.evaluateReadingPace(monthlyStats.finishedBooks);
-
-    const embed = new EmbedBuilder()
-      .setTitle('📚 月末読書統計 - 読書活動詳細レポート')
-      .setColor('#E74C3C')
-      .setDescription(`今月は **${monthlyStats.finishedBooks}** 冊の本を読了しました！`)
-      .addFields(
-        { 
-          name: '📊 読書ステータス分析', 
-          value: `🛒 買いたい: **${bookCounts.wantToBuy || 0}**冊 (${readingAnalysis.wishlistPercentage}%)\n📋 積読: **${bookCounts.wantToRead || 0}**冊 (${readingAnalysis.backlogPercentage}%)\n📖 読書中: **${bookCounts.reading}**冊\n✅ 読了: **${bookCounts.finished}**冊 (${readingAnalysis.completionPercentage}%)`, 
-          inline: true 
-        },
-        { 
-          name: '⚡ 読書ペース評価', 
-          value: `${readingPace.icon} **${readingPace.level}**\n${readingPace.comment}`,
-          inline: true 
-        },
-        {
-          name: '📈 効率指標',
-          value: `完読率: **${readingAnalysis.completionRate}%**\n積読消化率: **${readingAnalysis.backlogClearanceRate}%**\n月間ペース: **${readingAnalysis.monthlyPace}**冊/月`,
-          inline: false
-        }
-      )
-      .setTimestamp();
-
-    if (bookTitles && bookTitles.length > 0) {
-      const displayTitles = bookTitles.slice(0, 10);
-      const moreTitles = bookTitles.length - 10;
+      // 読書分析を自前で計算
+      const readingAnalysis = this.calculateReadingAnalysisLocal(bookCounts, monthlyStats);
+      const readingPace = this.evaluateReadingPace(monthlyStats.finishedBooks);
       
-      let titlesList = displayTitles.map((title, index) => `${index + 1}. ${title}`).join('\n');
-      if (moreTitles > 0) {
-        titlesList += `\n... 他${moreTitles}冊`;
+      // アニメ分析を計算
+      const animeAnalysis = this.calculateAnimeAnalysisLocal(animeStats, monthlyAnimeCompleted, monthlyAnimeEpisodes);
+      const animePace = this.evaluateAnimePace(monthlyAnimeCompleted, monthlyAnimeEpisodes);
+
+      const embed = new EmbedBuilder()
+        .setTitle('📚📺 月末エンターテイメント統計 - 読書・アニメ活動詳細レポート')
+        .setColor('#E74C3C')
+        .setDescription(`今月は **${monthlyStats.finishedBooks}** 冊の本と **${monthlyAnimeCompleted}** 本のアニメを完了しました！`)
+        .addFields(
+          { 
+            name: '📊 読書ステータス分析', 
+            value: `🛒 買いたい: **${bookCounts.wantToBuy || 0}**冊 (${readingAnalysis.wishlistPercentage}%)\n📋 積読: **${bookCounts.wantToRead || 0}**冊 (${readingAnalysis.backlogPercentage}%)\n📖 読書中: **${bookCounts.reading}**冊\n✅ 読了: **${bookCounts.finished}**冊 (${readingAnalysis.completionPercentage}%)`, 
+            inline: true 
+          },
+          { 
+            name: '📺 アニメステータス分析', 
+            value: `🍿 観たい: **${animeStats.wantToWatch}**本 (${animeAnalysis.wishlistPercentage}%)\n📺 視聴中: **${animeStats.watching}**本 (${animeAnalysis.watchingPercentage}%)\n✅ 完走: **${animeStats.completed}**本 (${animeAnalysis.completionPercentage}%)\n💔 中断: **${animeStats.dropped}**本`, 
+            inline: true 
+          },
+          { 
+            name: '⚡ 読書ペース評価', 
+            value: `${readingPace.icon} **${readingPace.level}**\n${readingPace.comment}`,
+            inline: true 
+          },
+          { 
+            name: '🚀 アニメペース評価', 
+            value: `${animePace.icon} **${animePace.level}**\n${animePace.comment}`,
+            inline: true 
+          },
+          {
+            name: '📈 読書効率指標',
+            value: `完読率: **${readingAnalysis.completionRate}%**\n積読消化率: **${readingAnalysis.backlogClearanceRate}%**\n月間ペース: **${readingAnalysis.monthlyPace}**冊/月`,
+            inline: true
+          },
+          {
+            name: '🎯 アニメ効率指標',
+            value: `完走率: **${animeAnalysis.completionRate}%**\n月間視聴話数: **${monthlyAnimeEpisodes}**話\n平均話数/日: **${Math.round(monthlyAnimeEpisodes/30)}**話`,
+            inline: true
+          }
+        )
+        .setTimestamp();
+
+      // 読了した本一覧
+      if (bookTitles && bookTitles.length > 0) {
+        const displayTitles = bookTitles.slice(0, 8);
+        const moreTitles = bookTitles.length - 8;
+        
+        let titlesList = displayTitles.map((title, index) => `${index + 1}. ${title}`).join('\n');
+        if (moreTitles > 0) {
+          titlesList += `\n... 他${moreTitles}冊`;
+        }
+        
+        embed.addFields({ 
+          name: '🏆 今月読了した本一覧', 
+          value: titlesList, 
+          inline: false 
+        });
+      }
+
+      // 完走したアニメ一覧
+      const completedAnimes = await this.getMonthlyCompletedAnimes();
+      if (completedAnimes.length > 0) {
+        const displayAnimes = completedAnimes.slice(0, 8);
+        const moreAnimes = completedAnimes.length - 8;
+        
+        let animesList = displayAnimes.map((anime, index) => 
+          `${index + 1}. ${anime.title} (${anime.total_episodes}話)`
+        ).join('\n');
+        if (moreAnimes > 0) {
+          animesList += `\n... 他${moreAnimes}本`;
+        }
+        
+        embed.addFields({ 
+          name: '🎉 今月完走したアニメ一覧', 
+          value: animesList, 
+          inline: false 
+        });
+      }
+
+      const nextMonthGoal = this.suggestEntertainmentGoal(monthlyStats.finishedBooks, bookCounts.wantToRead, monthlyAnimeCompleted, animeStats.watching);
+      if (nextMonthGoal) {
+        embed.addFields({
+          name: '🎯 来月のエンターテイメント目標提案',
+          value: nextMonthGoal,
+          inline: false
+        });
+      }
+
+      embed.setFooter({ text: '読書もアニメも心の栄養です！来月も素敵な作品との出会いを！' });
+
+      await channel.send({ embeds: [embed] });
+      console.log('📚📺 月末読書・アニメ統計を送信しました');
+
+    } catch (error) {
+      console.error('月末読書・アニメ統計送信エラー:', error);
+    }
+  }
+
+  /**
+   * アニメ分析を計算（ローカル実装）
+   */
+  calculateAnimeAnalysisLocal(animeStats, monthlyCompleted, monthlyEpisodes) {
+    const total = animeStats.total || 0;
+    
+    if (total === 0) {
+      return {
+        wishlistPercentage: 0,
+        watchingPercentage: 0,
+        completionPercentage: 0,
+        completionRate: 0,
+        monthlyPace: 0
+      };
+    }
+    
+    const wishlistPercentage = Math.round((animeStats.wantToWatch / total) * 100);
+    const watchingPercentage = Math.round((animeStats.watching / total) * 100);
+    const completionPercentage = Math.round((animeStats.completed / total) * 100);
+    const completionRate = total > 0 ? Math.round((animeStats.completed / total) * 100) : 0;
+    const monthlyPace = monthlyCompleted || 0;
+    
+    return {
+      wishlistPercentage,
+      watchingPercentage,
+      completionPercentage,
+      completionRate,
+      monthlyPace
+    };
+  }
+
+  /**
+   * アニメ視聴ペースを評価
+   */
+  evaluateAnimePace(monthlyCompleted, monthlyEpisodes) {
+    if (monthlyCompleted >= 6) {
+      return { icon: '🚀', level: '超高速ペース', comment: `月${monthlyCompleted}本完走！驚異的な視聴量です！` };
+    } else if (monthlyCompleted >= 3) {
+      return { icon: '⚡', level: '高速ペース', comment: `月${monthlyCompleted}本完走！素晴らしいペースです！` };
+    } else if (monthlyCompleted >= 1) {
+      return { icon: '📈', level: '標準ペース', comment: `月${monthlyCompleted}本完走！良いペースを保っています！` };
+    } else if (monthlyEpisodes >= 20) {
+      return { icon: '📺', level: '話数重視', comment: `月${monthlyEpisodes}話視聴！継続視聴が素晴らしい！` };
+    } else if (monthlyEpisodes >= 10) {
+      return { icon: '🌱', level: '安定ペース', comment: `月${monthlyEpisodes}話視聴！継続が大切です！` };
+    } else {
+      return { icon: '🌱', level: 'スタート', comment: 'まずは月1本の完走を目指してみませんか？' };
+    }
+  }
+
+  /**
+   * エンターテイメント目標を提案
+   */
+  suggestEntertainmentGoal(finishedBooks, backlogBooks, completedAnimes, watchingAnimes) {
+    const suggestions = [];
+    
+    // 読書目標
+    if (finishedBooks < 1) {
+      suggestions.push('📚 まずは月1冊の読了を目指してみましょう');
+    } else if (finishedBooks < 2) {
+      suggestions.push('📚 月2冊読了を目指して、読書習慣を強化しませんか');
+    } else if (backlogBooks > 10) {
+      suggestions.push('📚 積読本が多いので、新規購入を控えて消化に集中しませんか');
+    } else if (finishedBooks >= 4) {
+      suggestions.push('📚 素晴らしいペース！このまま継続して年間50冊を目指しませんか');
+    }
+    
+    // アニメ目標
+    if (completedAnimes < 1) {
+      suggestions.push('📺 まずは月1本のアニメ完走を目指してみましょう');
+    } else if (completedAnimes < 2) {
+      suggestions.push('📺 月2本完走にチャレンジしてみませんか');
+    } else if (watchingAnimes > 5) {
+      suggestions.push('📺 視聴中のアニメが多いので、完走に集中しませんか');
+    } else if (completedAnimes >= 3) {
+      suggestions.push('📺 素晴らしいペース！月3-4本完走を継続しましょう');
+    }
+    
+    // バランス提案
+    if (finishedBooks > 0 && completedAnimes > 0) {
+      suggestions.push('⚖️ 読書とアニメのバランスが取れていて素晴らしいです');
+    } else if (finishedBooks > completedAnimes * 2) {
+      suggestions.push('🎯 読書が充実！アニメも少し増やしてリフレッシュしませんか');
+    } else if (completedAnimes > finishedBooks * 2) {
+      suggestions.push('🎯 アニメが充実！読書も少し増やして知識を深めませんか');
+    }
+    
+    return suggestions.slice(0, 3).join('\n• ');
+  }
+
+  // =====================================
+  // 🎯 目標管理関連のアニメ対応拡張
+  // =====================================
+
+  /**
+   * 目標進捗フォーマット（アニメ対応版）
+   */
+  formatGoalSectionWithAnime(goals, currentStats) {
+    try {
+      if (!goals || Object.keys(goals).length === 0) {
+        return '目標が設定されていません';
       }
       
-      embed.addFields({ 
-        name: '🏆 今月読了した本一覧', 
-        value: titlesList, 
-        inline: false 
-      });
+      if (!currentStats) {
+        currentStats = {};
+      }
+      
+      const sections = Object.entries(goals)
+        .map(([category, target]) => {
+          try {
+            const current = currentStats[category] || 0;
+            const percentage = Math.min(Math.round((current / target) * 100), 100);
+            const progressBar = this.getProgressBar(percentage);
+            const emoji = this.getCategoryEmojiWithAnime(category);
+            const name = this.getCategoryNameWithAnime(category);
+            
+            let status = '';
+            if (percentage >= 100) status = '✅';
+            else if (percentage >= 75) status = '🔥';
+            else if (percentage >= 50) status = '📈';
+            else if (percentage >= 25) status = '🚀';
+            else status = '📍';
+
+            return `${status} ${emoji} **${name}**: ${progressBar} **${current}/${target}** (${percentage}%)`;
+          } catch (error) {
+            console.error(`カテゴリ ${category} の処理エラー:`, error);
+            return `❓ ${category}: データ処理エラー`;
+          }
+        })
+        .filter(section => section && section.trim() !== '');
+      
+      const result = sections.join('\n');
+      return result || '目標データを取得できませんでした';
+    } catch (error) {
+      console.error('formatGoalSectionWithAnime エラー:', error);
+      return '目標データの処理中にエラーが発生しました';
     }
-
-    const nextMonthGoal = this.suggestReadingGoal(monthlyStats.finishedBooks, bookCounts.wantToRead);
-    if (nextMonthGoal) {
-      embed.addFields({
-        name: '🎯 来月の読書目標提案',
-        value: nextMonthGoal,
-        inline: false
-      });
-    }
-
-    embed.setFooter({ text: '読書は心の栄養です！来月も素敵な本との出会いを！' });
-
-    await channel.send({ embeds: [embed] });
-    console.log('📚 月末読書統計を送信しました');
-
-  } catch (error) {
-    console.error('月末読書統計送信エラー:', error);
   }
-}
+
+  /**
+   * カテゴリ絵文字取得（アニメ対応版）
+   */
+  getCategoryEmojiWithAnime(category) {
+    const emojis = {
+      books: '📚',
+      movies: '🎬',
+      animes: '📺',
+      episodes: '📺',
+      activities: '🎯',
+      reports: '📝'
+    };
+    return emojis[category] || '❓';
+  }
+
+  /**
+   * カテゴリ名取得（アニメ対応版）
+   */
+  getCategoryNameWithAnime(category) {
+    const names = {
+      books: '本',
+      movies: '映画',
+      animes: 'アニメ',
+      episodes: '話数',
+      activities: '活動',
+      reports: '日報'
+    };
+    return names[category] || category;
+  }
+
+  /**
+   * アニメを含む目標アドバイス生成
+   */
+  generateGoalsAdviceWithAnime(goals, currentStats, reportType) {
+    const advice = [];
+    
+    if (reportType === 'weekly_start') {
+      advice.push('🌟 新しい週の始まりです！読書、アニメ、活動をバランスよく楽しみましょう。');
+      
+      const hasGoals = Object.keys(goals.weekly || {}).length > 0;
+      if (hasGoals) {
+        advice.push('📝 先週の反省を活かして、今週はさらに良い結果を目指しましょう！');
+        
+        // アニメ特有のアドバイス
+        if (goals.weekly.animes || goals.weekly.episodes) {
+          advice.push('📺 アニメは無理せず、楽しめる範囲で視聴しましょう。質も大切です！');
+        }
+      }
+    } else if (reportType === 'weekly_mid') {
+      const weeklyProgress = Object.entries(goals.weekly || {}).map(([category, target]) => {
+        const current = currentStats.weekly?.[category] || 0;
+        return (current / target) * 100;
+      });
+      
+      const avgProgress = weeklyProgress.length > 0 ? 
+        weeklyProgress.reduce((sum, p) => sum + p, 0) / weeklyProgress.length : 0;
+      
+      if (avgProgress >= 60) {
+        advice.push('🎉 素晴らしい進捗です！読書もアニメも順調ですね！');
+      } else if (avgProgress >= 30) {
+        advice.push('📈 順調に進んでいます。週末に向けて少しペースを上げてみませんか？');
+      } else {
+        advice.push('⚡ 週の後半です！アニメ1話、本1章でも進歩です。頑張りましょう！');
+      }
+      
+      // アニメ特有のアドバイス
+      if (goals.weekly.episodes && currentStats.weekly?.episodes < (goals.weekly.episodes * 0.5)) {
+        advice.push('📺 アニメ視聴が少し遅れていますね。短い話数から始めてみませんか？');
+      }
+    }
+    
+    return advice.join('\n\n');
+  }
 
 /**
  * 読書分析を計算（ローカル実装）
