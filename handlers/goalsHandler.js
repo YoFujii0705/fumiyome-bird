@@ -4,33 +4,34 @@ const { createSuccessEmbed, createErrorEmbed, createInfoEmbed } = require('../ut
 const { formatNumber, getProgressBar, getTimeRemaining } = require('../utils/formatUtils');
 
 /**
- * 目標管理ハンドラー - 完全機能版
- * 個人目標の設定・管理・進捗追跡を行う
+ * 目標管理ハンドラー - アニメ対応完全機能版
+ * 個人目標の設定・管理・進捗追跡を行う（アニメカテゴリ追加）
  */
 class GoalsHandler {
   constructor() {
     this.presets = {
       beginner: {
-        weekly: { books: 1, movies: 2, activities: 1, reports: 5 },
-        monthly: { books: 4, movies: 8, activities: 4, reports: 20 }
+        weekly: { books: 1, movies: 2, animes: 1, activities: 1, reports: 5 }, // 🆕 アニメ追加
+        monthly: { books: 4, movies: 8, animes: 2, activities: 4, reports: 20 } // 🆕 アニメ追加
       },
       standard: {
-        weekly: { books: 2, movies: 3, activities: 5, reports: 7 },
-        monthly: { books: 8, movies: 12, activities: 20, reports: 28 }
+        weekly: { books: 2, movies: 3, animes: 1, activities: 5, reports: 7 }, // 🆕 アニメ追加
+        monthly: { books: 8, movies: 12, animes: 4, activities: 20, reports: 28 } // 🆕 アニメ追加
       },
       challenge: {
-        weekly: { books: 3, movies: 4, activities: 7, reports: 10 },
-        monthly: { books: 12, movies: 16, activities: 28, reports: 40 }
+        weekly: { books: 3, movies: 4, animes: 2, activities: 7, reports: 10 }, // 🆕 アニメ追加
+        monthly: { books: 12, movies: 16, animes: 6, activities: 28, reports: 40 } // 🆕 アニメ追加
       },
       expert: {
-        weekly: { books: 4, movies: 5, activities: 10, reports: 14 },
-        monthly: { books: 16, movies: 20, activities: 40, reports: 56 }
+        weekly: { books: 4, movies: 5, animes: 2, activities: 10, reports: 14 }, // 🆕 アニメ追加
+        monthly: { books: 16, movies: 20, animes: 8, activities: 40, reports: 56 } // 🆕 アニメ追加
       }
     };
 
     this.categoryEmojis = {
       books: '📚',
       movies: '🎬',
+      animes: '📺', // 🆕 アニメ追加
       activities: '🎯',
       reports: '📝'
     };
@@ -38,6 +39,7 @@ class GoalsHandler {
     this.categoryNames = {
       books: '本',
       movies: '映画',
+      animes: 'アニメ', // 🆕 アニメ追加
       activities: '活動',
       reports: '日報'
     };
@@ -82,394 +84,405 @@ class GoalsHandler {
     }
   }
 
- /**
- * 現在の目標設定を表示
- */
-async handleShow(interaction) {
-  console.log('[DEBUG] handleShow 実行');
+  /**
+   * 現在の目標設定を表示（アニメ対応）
+   */
+  async handleShow(interaction) {
+    console.log('[DEBUG] handleShow 実行');
 
-  try {
-    // 最初に応答を遅延させる - 統計取得に時間がかかるため
-    await interaction.deferReply();
+    try {
+      // 最初に応答を遅延させる - 統計取得に時間がかかるため
+      await interaction.deferReply();
 
-    const userId = interaction.user.id;
-    const goals = await goalService.getGoals(userId);
-    const currentStats = await goalService.getCurrentProgress(userId);
+      const userId = interaction.user.id;
+      const goals = await goalService.getGoals(userId);
+      const currentStats = await goalService.getCurrentProgress(userId);
 
-    const embed = new EmbedBuilder()
-      .setColor('#3498db')
-      .setTitle('🎯 現在の目標設定')
-      .setDescription('あなたの目標設定と今期の進捗状況です')
-      .setTimestamp();
+      const embed = new EmbedBuilder()
+        .setColor('#3498db')
+        .setTitle('🎯 現在の目標設定')
+        .setDescription('あなたの目標設定と今期の進捗状況です（アニメ含む）')
+        .setTimestamp();
 
-    // 週次目標
-    if (goals.weekly && Object.keys(goals.weekly).length > 0) {
-      const weeklyText = this.formatGoalSection('weekly', goals.weekly, currentStats.weekly);
-      embed.addFields({
-        name: '📅 週次目標 (今週)',
-        value: weeklyText,
-        inline: false
-      });
-    }
+      // 週次目標
+      if (goals.weekly && Object.keys(goals.weekly).length > 0) {
+        const weeklyText = this.formatGoalSection('weekly', goals.weekly, currentStats.weekly);
+        embed.addFields({
+          name: '📅 週次目標 (今週)',
+          value: weeklyText,
+          inline: false
+        });
+      }
 
-    // 月次目標
-    if (goals.monthly && Object.keys(goals.monthly).length > 0) {
-      const monthlyText = this.formatGoalSection('monthly', goals.monthly, currentStats.monthly);
-      embed.addFields({
-        name: '🗓️ 月次目標 (今月)',
-        value: monthlyText,
-        inline: false
-      });
-    }
+      // 月次目標
+      if (goals.monthly && Object.keys(goals.monthly).length > 0) {
+        const monthlyText = this.formatGoalSection('monthly', goals.monthly, currentStats.monthly);
+        embed.addFields({
+          name: '🗓️ 月次目標 (今月)',
+          value: monthlyText,
+          inline: false
+        });
+      }
 
-    // 目標が設定されていない場合
-    if ((!goals.weekly || Object.keys(goals.weekly).length === 0) && 
-        (!goals.monthly || Object.keys(goals.monthly).length === 0)) {
-      embed.setDescription('まだ目標が設定されていません。\n`/goals quick` でクイック設定するか、`/goals set` で個別に設定してください。');
-      embed.setColor('#95a5a6');
-    }
+      // 目標が設定されていない場合
+      if ((!goals.weekly || Object.keys(goals.weekly).length === 0) && 
+          (!goals.monthly || Object.keys(goals.monthly).length === 0)) {
+        embed.setDescription('まだ目標が設定されていません。\n`/goals quick` でクイック設定するか、`/goals set` で個別に設定してください。');
+        embed.setColor('#95a5a6');
+      }
 
-    // アクションボタン
-    const row = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId('goals_quick_setup')
-          .setLabel('⚡ クイック設定')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId('goals_detailed_progress')
-          .setLabel('📊 詳細進捗')
-          .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-          .setCustomId('goals_reset')
-          .setLabel('🔄 リセット')
-          .setStyle(ButtonStyle.Danger)
+      // アクションボタン
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId('goals_quick_setup')
+            .setLabel('⚡ クイック設定')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('goals_detailed_progress')
+            .setLabel('📊 詳細進捗')
+            .setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder()
+            .setCustomId('goals_reset')
+            .setLabel('🔄 リセット')
+            .setStyle(ButtonStyle.Danger)
+        );
+
+      // editReplyで応答
+      return await interaction.editReply({ embeds: [embed], components: [row] });
+
+    } catch (error) {
+      console.error('目標表示エラー:', error);
+      const embed = createErrorEmbed(
+        '❌ 表示エラー',
+        '目標の取得中にエラーが発生しました。'
       );
-
-    // editReplyで応答
-    return await interaction.editReply({ embeds: [embed], components: [row] });
-
-  } catch (error) {
-    console.error('目標表示エラー:', error);
-    const embed = createErrorEmbed(
-      '❌ 表示エラー',
-      '目標の取得中にエラーが発生しました。'
-    );
-    
-    // エラーハンドリングでもeditReplyを使用
-    return await interaction.editReply({ embeds: [embed] });
-  }
-}
-
-  /**
- * 個別目標設定
- */
-async handleSet(interaction) {
-  console.log('[DEBUG] handleSet 実行');
-
-  try {
-    // 最初に応答を遅延させる
-    await interaction.deferReply();
-    
-    // パラメータを最初に取得
-    const userId = interaction.user.id;
-    const period = interaction.options.getString('period');
-    const category = interaction.options.getString('category');
-    const target = interaction.options.getInteger('target');
-
-    console.log(`[DEBUG] 設定内容: ${period}, ${category}, ${target}`);
-
-    // 目標を設定
-    await goalService.setGoal(userId, period, category, target);
-
-    const emoji = this.categoryEmojis[category];
-    const categoryName = this.categoryNames[category];
-    const periodName = period === 'weekly' ? '週次' : '月次';
-
-    const embed = createSuccessEmbed(
-      '✅ 目標を設定しました',
-      `${emoji} **${categoryName}** の${periodName}目標を **${target}** に設定しました。\n\n頑張って達成しましょう！ 💪`
-    );
-
-    // 現在の進捗を取得して表示
-    const currentStats = await goalService.getCurrentProgress(userId);
-    const current = period === 'weekly' ? currentStats.weekly[category] || 0 : currentStats.monthly[category] || 0;
-    const percentage = Math.min(Math.round((current / target) * 100), 100);
-    const progressBar = getProgressBar(percentage);
-
-    embed.addFields({
-      name: '📊 現在の進捗',
-      value: `${progressBar} **${current}/${target}** (${percentage}%)`,
-      inline: false
-    });
-
-    // 励ましメッセージ
-    if (percentage >= 100) {
-      embed.addFields({
-        name: '🎉 すでに達成済み！',
-        value: '素晴らしい成果です！さらなる目標に挑戦してみませんか？',
-        inline: false
-      });
-    } else if (percentage >= 75) {
-      embed.addFields({
-        name: '🔥 あと少し！',
-        value: 'ゴールまでもう少しです。最後まで頑張りましょう！',
-        inline: false
-      });
-    } else if (percentage >= 50) {
-      embed.addFields({
-        name: '📈 順調です',
-        value: '半分を超えました！この調子で続けましょう。',
-        inline: false
-      });
+      
+      // エラーハンドリングでもeditReplyを使用
+      return await interaction.editReply({ embeds: [embed] });
     }
-
-    // editReplyで応答を送信
-    return await interaction.editReply({ embeds: [embed] });
-
-  } catch (error) {
-    console.error('目標設定エラー:', error);
-    const embed = createErrorEmbed(
-      '❌ 設定エラー',
-      '目標の設定中にエラーが発生しました。'
-    );
-    
-    // エラーハンドリングでもeditReplyを使用
-    return await interaction.editReply({ embeds: [embed] });
   }
-}
+
   /**
- * 目標リセット
- */
-async handleReset(interaction) {
-  console.log('[DEBUG] handleReset 実行');
+   * 個別目標設定（アニメ対応）
+   */
+  async handleSet(interaction) {
+    console.log('[DEBUG] handleSet 実行');
 
-  try {
-    // 最初に応答を遅延させる
-    await interaction.deferReply();
+    try {
+      // 最初に応答を遅延させる
+      await interaction.deferReply();
+      
+      // パラメータを最初に取得
+      const userId = interaction.user.id;
+      const period = interaction.options.getString('period');
+      const category = interaction.options.getString('category');
+      const target = interaction.options.getInteger('target');
 
-    const userId = interaction.user.id;
-    const period = interaction.options.getString('period') || 'all';
+      console.log(`[DEBUG] 設定内容: ${period}, ${category}, ${target}`);
 
-    if (period === 'all') {
-      await goalService.resetAllGoals(userId);
-      var message = '全ての目標をリセットしました。';
-    } else {
-      await goalService.resetGoals(userId, period);
+      // 目標を設定
+      await goalService.setGoal(userId, period, category, target);
+
+      const emoji = this.categoryEmojis[category];
+      const categoryName = this.categoryNames[category];
       const periodName = period === 'weekly' ? '週次' : '月次';
-      var message = `${periodName}目標をリセットしました。`;
-    }
 
-    const embed = createSuccessEmbed(
-      '🔄 目標をリセットしました',
-      `${message}\n\n新しい目標を設定して、再スタートしましょう！`
-    );
-
-    // クイック設定のボタンを追加
-    const row = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId('goals_quick_setup')
-          .setLabel('⚡ クイック設定')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId('goals_custom_setup')
-          .setLabel('⚙️ 個別設定')
-          .setStyle(ButtonStyle.Secondary)
+      const embed = createSuccessEmbed(
+        '✅ 目標を設定しました',
+        `${emoji} **${categoryName}** の${periodName}目標を **${target}** に設定しました。\n\n頑張って達成しましょう！ 💪`
       );
 
-    return await interaction.editReply({ embeds: [embed], components: [row] });
+      // 現在の進捗を取得して表示
+      const currentStats = await goalService.getCurrentProgress(userId);
+      const current = period === 'weekly' ? currentStats.weekly[category] || 0 : currentStats.monthly[category] || 0;
+      const percentage = Math.min(Math.round((current / target) * 100), 100);
+      const progressBar = getProgressBar(percentage);
 
-  } catch (error) {
-    console.error('目標リセットエラー:', error);
-    const embed = createErrorEmbed(
-      '❌ リセットエラー',
-      '目標のリセット中にエラーが発生しました。'
-    );
-    
-    return await interaction.editReply({ embeds: [embed] });
-  }
-}
-
-  /**
- * クイック設定（プリセット）
- */
-async handleQuick(interaction) {
-  console.log('[DEBUG] handleQuick 実行');
-
-  try {
-    // 最初に応答を遅延させる
-    await interaction.deferReply();
-
-    const userId = interaction.user.id;
-    const preset = interaction.options.getString('preset');
-
-    console.log(`[DEBUG] 選択されたプリセット: ${preset}`);
-
-    if (!this.presets[preset]) {
-      throw new Error(`無効なプリセット: ${preset}`);
-    }
-
-    const presetData = this.presets[preset];
-    
-    // プリセットの目標を一括設定
-    await goalService.setGoalsFromPreset(userId, presetData);
-
-    const presetNames = {
-      beginner: '🌱 初心者向け',
-      standard: '📈 標準',
-      challenge: '🔥 チャレンジ',
-      expert: '🏆 エキスパート'
-    };
-
-    const embed = createSuccessEmbed(
-      '⚡ クイック設定完了！',
-      `**${presetNames[preset]}** プリセットで目標を設定しました。`
-    );
-
-    // 設定された目標の詳細表示
-    const weeklyDetails = Object.entries(presetData.weekly)
-      .map(([category, target]) => `${this.categoryEmojis[category]} ${this.categoryNames[category]}: ${target}`)
-      .join('\n');
-
-    const monthlyDetails = Object.entries(presetData.monthly)
-      .map(([category, target]) => `${this.categoryEmojis[category]} ${this.categoryNames[category]}: ${target}`)
-      .join('\n');
-
-    embed.addFields(
-      { name: '📅 週次目標', value: weeklyDetails, inline: true },
-      { name: '🗓️ 月次目標', value: monthlyDetails, inline: true },
-      { name: '\u200B', value: '\u200B', inline: false },
-      { name: '💡 ヒント', value: '`/goals progress` で詳細な進捗を確認できます！', inline: false }
-    );
-
-    // 現在の進捗も表示
-    const currentStats = await goalService.getCurrentProgress(userId);
-    const progressText = this.formatQuickProgressOverview(presetData, currentStats);
-    
-    if (progressText) {
       embed.addFields({
-        name: '📊 現在の進捗概要',
-        value: progressText,
+        name: '📊 現在の進捗',
+        value: `${progressBar} **${current}/${target}** (${percentage}%)`,
         inline: false
       });
+
+      // 励ましメッセージ（アニメ対応）
+      if (percentage >= 100) {
+        embed.addFields({
+          name: '🎉 すでに達成済み！',
+          value: '素晴らしい成果です！さらなる目標に挑戦してみませんか？',
+          inline: false
+        });
+      } else if (percentage >= 75) {
+        embed.addFields({
+          name: '🔥 あと少し！',
+          value: 'ゴールまでもう少しです。最後まで頑張りましょう！',
+          inline: false
+        });
+      } else if (percentage >= 50) {
+        embed.addFields({
+          name: '📈 順調です',
+          value: '半分を超えました！この調子で続けましょう。',
+          inline: false
+        });
+      }
+
+      // カテゴリ別のアドバイス
+      const advice = this.getCategoryAdvice(category, current, target);
+      if (advice) {
+        embed.addFields({
+          name: '💡 アドバイス',
+          value: advice,
+          inline: false
+        });
+      }
+
+      // editReplyで応答を送信
+      return await interaction.editReply({ embeds: [embed] });
+
+    } catch (error) {
+      console.error('目標設定エラー:', error);
+      const embed = createErrorEmbed(
+        '❌ 設定エラー',
+        '目標の設定中にエラーが発生しました。'
+      );
+      
+      // エラーハンドリングでもeditReplyを使用
+      return await interaction.editReply({ embeds: [embed] });
     }
-
-    return await interaction.editReply({ embeds: [embed] });
-
-  } catch (error) {
-    console.error('クイック設定エラー:', error);
-    const embed = createErrorEmbed(
-      '❌ 設定エラー',
-      'クイック設定中にエラーが発生しました。'
-    );
-    
-    return await interaction.editReply({ embeds: [embed] });
   }
-}
 
   /**
- * 詳細進捗表示
- */
-async handleProgress(interaction) {
-  console.log('[DEBUG] handleProgress 実行');
+   * 目標リセット（アニメ対応）
+   */
+  async handleReset(interaction) {
+    console.log('[DEBUG] handleReset 実行');
 
-  try {
-    // 最初に応答を遅延させる - 進捗分析に時間がかかるため
-    await interaction.deferReply();
+    try {
+      // 最初に応答を遅延させる
+      await interaction.deferReply();
 
-    const userId = interaction.user.id;
-    const goals = await goalService.getGoals(userId);
-    const currentStats = await goalService.getCurrentProgress(userId);
-    const progressAnalysis = await goalService.getProgressAnalysis(userId);
+      const userId = interaction.user.id;
+      const period = interaction.options.getString('period') || 'all';
 
-    if ((!goals.weekly || Object.keys(goals.weekly).length === 0) && 
-        (!goals.monthly || Object.keys(goals.monthly).length === 0)) {
-      const embed = createInfoEmbed(
-        '📊 進捗表示',
-        'まだ目標が設定されていません。\n`/goals quick` でクイック設定してから進捗を確認してください。'
+      if (period === 'all') {
+        await goalService.resetAllGoals(userId);
+        var message = '全ての目標をリセットしました。';
+      } else {
+        await goalService.resetGoals(userId, period);
+        const periodName = period === 'weekly' ? '週次' : '月次';
+        var message = `${periodName}目標をリセットしました。`;
+      }
+
+      const embed = createSuccessEmbed(
+        '🔄 目標をリセットしました',
+        `${message}\n\n新しい目標を設定して、再スタートしましょう！`
+      );
+
+      // クイック設定のボタンを追加
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId('goals_quick_setup')
+            .setLabel('⚡ クイック設定')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('goals_custom_setup')
+            .setLabel('⚙️ 個別設定')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+      return await interaction.editReply({ embeds: [embed], components: [row] });
+
+    } catch (error) {
+      console.error('目標リセットエラー:', error);
+      const embed = createErrorEmbed(
+        '❌ リセットエラー',
+        '目標のリセット中にエラーが発生しました。'
       );
       
       return await interaction.editReply({ embeds: [embed] });
     }
-
-    const embed = new EmbedBuilder()
-      .setColor('#2ecc71')
-      .setTitle('📊 目標達成進捗 - 詳細分析')
-      .setDescription('あなたの目標達成状況を詳しく分析します')
-      .setTimestamp();
-
-    // 週次進捗
-    if (goals.weekly && Object.keys(goals.weekly).length > 0) {
-      const weeklyAnalysis = this.analyzeProgress('weekly', goals.weekly, currentStats.weekly, progressAnalysis.weekly);
-      embed.addFields({
-        name: '📅 週次目標 - 今週の進捗',
-        value: weeklyAnalysis.summary,
-        inline: false
-      });
-
-      if (weeklyAnalysis.details) {
-        embed.addFields({
-          name: '📈 詳細分析 (週次)',
-          value: weeklyAnalysis.details,
-          inline: false
-        });
-      }
-    }
-
-    // 月次進捗
-    if (goals.monthly && Object.keys(goals.monthly).length > 0) {
-      const monthlyAnalysis = this.analyzeProgress('monthly', goals.monthly, currentStats.monthly, progressAnalysis.monthly);
-      embed.addFields({
-        name: '🗓️ 月次目標 - 今月の進捗',
-        value: monthlyAnalysis.summary,
-        inline: false
-      });
-
-      if (monthlyAnalysis.details) {
-        embed.addFields({
-          name: '📈 詳細分析 (月次)',
-          value: monthlyAnalysis.details,
-          inline: false
-        });
-      }
-    }
-
-    // 全体サマリー
-    const overallSummary = this.generateOverallSummary(goals, currentStats, progressAnalysis);
-    if (overallSummary) {
-      embed.addFields({
-        name: '🎯 全体サマリー',
-        value: overallSummary,
-        inline: false
-      });
-    }
-
-    // アドバイス
-    const advice = this.generateAdvice(goals, currentStats, progressAnalysis);
-    if (advice) {
-      embed.addFields({
-        name: '💡 アドバイス',
-        value: advice,
-        inline: false
-      });
-    }
-
-    return await interaction.editReply({ embeds: [embed] });
-
-  } catch (error) {
-    console.error('進捗表示エラー:', error);
-    const embed = createErrorEmbed(
-      '❌ 表示エラー',
-      '進捗の取得中にエラーが発生しました。'
-    );
-    
-    return await interaction.editReply({ embeds: [embed] });
   }
-}
 
   /**
-   * 目標セクションのフォーマット
+   * クイック設定（プリセット）（アニメ対応）
+   */
+  async handleQuick(interaction) {
+    console.log('[DEBUG] handleQuick 実行');
+
+    try {
+      // 最初に応答を遅延させる
+      await interaction.deferReply();
+
+      const userId = interaction.user.id;
+      const preset = interaction.options.getString('preset');
+
+      console.log(`[DEBUG] 選択されたプリセット: ${preset}`);
+
+      if (!this.presets[preset]) {
+        throw new Error(`無効なプリセット: ${preset}`);
+      }
+
+      const presetData = this.presets[preset];
+      
+      // プリセットの目標を一括設定
+      await goalService.setGoalsFromPreset(userId, presetData);
+
+      const presetNames = {
+        beginner: '🌱 初心者向け',
+        standard: '📈 標準',
+        challenge: '🔥 チャレンジ',
+        expert: '🏆 エキスパート'
+      };
+
+      const embed = createSuccessEmbed(
+        '⚡ クイック設定完了！',
+        `**${presetNames[preset]}** プリセットで目標を設定しました（アニメ含む）。`
+      );
+
+      // 設定された目標の詳細表示（アニメ追加）
+      const weeklyDetails = Object.entries(presetData.weekly)
+        .map(([category, target]) => `${this.categoryEmojis[category]} ${this.categoryNames[category]}: ${target}`)
+        .join('\n');
+
+      const monthlyDetails = Object.entries(presetData.monthly)
+        .map(([category, target]) => `${this.categoryEmojis[category]} ${this.categoryNames[category]}: ${target}`)
+        .join('\n');
+
+      embed.addFields(
+        { name: '📅 週次目標', value: weeklyDetails, inline: true },
+        { name: '🗓️ 月次目標', value: monthlyDetails, inline: true },
+        { name: '\u200B', value: '\u200B', inline: false },
+        { name: '💡 ヒント', value: '`/goals progress` で詳細な進捗を確認できます！', inline: false }
+      );
+
+      // 現在の進捗も表示
+      const currentStats = await goalService.getCurrentProgress(userId);
+      const progressText = this.formatQuickProgressOverview(presetData, currentStats);
+      
+      if (progressText) {
+        embed.addFields({
+          name: '📊 現在の進捗概要',
+          value: progressText,
+          inline: false
+        });
+      }
+
+      return await interaction.editReply({ embeds: [embed] });
+
+    } catch (error) {
+      console.error('クイック設定エラー:', error);
+      const embed = createErrorEmbed(
+        '❌ 設定エラー',
+        'クイック設定中にエラーが発生しました。'
+      );
+      
+      return await interaction.editReply({ embeds: [embed] });
+    }
+  }
+
+  /**
+   * 詳細進捗表示（アニメ対応）
+   */
+  async handleProgress(interaction) {
+    console.log('[DEBUG] handleProgress 実行');
+
+    try {
+      // 最初に応答を遅延させる - 進捗分析に時間がかかるため
+      await interaction.deferReply();
+
+      const userId = interaction.user.id;
+      const goals = await goalService.getGoals(userId);
+      const currentStats = await goalService.getCurrentProgress(userId);
+      const progressAnalysis = await goalService.getProgressAnalysis(userId);
+
+      if ((!goals.weekly || Object.keys(goals.weekly).length === 0) && 
+          (!goals.monthly || Object.keys(goals.monthly).length === 0)) {
+        const embed = createInfoEmbed(
+          '📊 進捗表示',
+          'まだ目標が設定されていません。\n`/goals quick` でクイック設定してから進捗を確認してください。'
+        );
+        
+        return await interaction.editReply({ embeds: [embed] });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor('#2ecc71')
+        .setTitle('📊 目標達成進捗 - 詳細分析（アニメ含む）')
+        .setDescription('あなたの目標達成状況を詳しく分析します')
+        .setTimestamp();
+
+      // 週次進捗
+      if (goals.weekly && Object.keys(goals.weekly).length > 0) {
+        const weeklyAnalysis = this.analyzeProgress('weekly', goals.weekly, currentStats.weekly, progressAnalysis.weekly);
+        embed.addFields({
+          name: '📅 週次目標 - 今週の進捗',
+          value: weeklyAnalysis.summary,
+          inline: false
+        });
+
+        if (weeklyAnalysis.details) {
+          embed.addFields({
+            name: '📈 詳細分析 (週次)',
+            value: weeklyAnalysis.details,
+            inline: false
+          });
+        }
+      }
+
+      // 月次進捗
+      if (goals.monthly && Object.keys(goals.monthly).length > 0) {
+        const monthlyAnalysis = this.analyzeProgress('monthly', goals.monthly, currentStats.monthly, progressAnalysis.monthly);
+        embed.addFields({
+          name: '🗓️ 月次目標 - 今月の進捗',
+          value: monthlyAnalysis.summary,
+          inline: false
+        });
+
+        if (monthlyAnalysis.details) {
+          embed.addFields({
+            name: '📈 詳細分析 (月次)',
+            value: monthlyAnalysis.details,
+            inline: false
+          });
+        }
+      }
+
+      // 全体サマリー（アニメ含む）
+      const overallSummary = this.generateOverallSummary(goals, currentStats, progressAnalysis);
+      if (overallSummary) {
+        embed.addFields({
+          name: '🎯 全体サマリー',
+          value: overallSummary,
+          inline: false
+        });
+      }
+
+      // アドバイス（アニメ含む）
+      const advice = this.generateAdvice(goals, currentStats, progressAnalysis);
+      if (advice) {
+        embed.addFields({
+          name: '💡 アドバイス',
+          value: advice,
+          inline: false
+        });
+      }
+
+      return await interaction.editReply({ embeds: [embed] });
+
+    } catch (error) {
+      console.error('進捗表示エラー:', error);
+      const embed = createErrorEmbed(
+        '❌ 表示エラー',
+        '進捗の取得中にエラーが発生しました。'
+      );
+      
+      return await interaction.editReply({ embeds: [embed] });
+    }
+  }
+
+  /**
+   * 目標セクションのフォーマット（アニメ対応）
    */
   formatGoalSection(period, goals, currentStats) {
     return Object.entries(goals)
@@ -493,7 +506,7 @@ async handleProgress(interaction) {
   }
 
   /**
-   * クイック設定後の進捗概要フォーマット
+   * クイック設定後の進捗概要フォーマット（アニメ対応）
    */
   formatQuickProgressOverview(presetData, currentStats) {
     const weeklyTotal = Object.values(presetData.weekly).reduce((sum, target) => sum + target, 0);
@@ -516,7 +529,7 @@ async handleProgress(interaction) {
   }
 
   /**
-   * 進捗分析
+   * 進捗分析（アニメ対応）
    */
   analyzeProgress(period, goals, currentStats, analysisData) {
     const entries = Object.entries(goals);
@@ -568,7 +581,7 @@ async handleProgress(interaction) {
   }
 
   /**
-   * 全体サマリー生成
+   * 全体サマリー生成（アニメ対応）
    */
   generateOverallSummary(goals, currentStats, progressAnalysis) {
     let summary = '';
@@ -582,7 +595,7 @@ async handleProgress(interaction) {
       }
     }
 
-    // 今週・今月の達成率
+    // 今週・今月の達成率（アニメ含む）
     let weeklyAchieved = 0;
     let weeklyTotal = 0;
     if (goals.weekly) {
@@ -619,7 +632,7 @@ async handleProgress(interaction) {
   }
 
   /**
-   * アドバイス生成
+   * アドバイス生成（アニメ対応）
    */
   generateAdvice(goals, currentStats, progressAnalysis) {
     const advice = [];
@@ -665,13 +678,25 @@ async handleProgress(interaction) {
       }
     }
 
-    // 特定のカテゴリへのアドバイス
+    // 特定のカテゴリへのアドバイス（アニメ追加）
     const allStats = { ...currentStats.weekly, ...currentStats.monthly };
     const lowPerformance = Object.entries(allStats).filter(([category, count]) => count === 0);
     
     if (lowPerformance.length > 0) {
       const categories = lowPerformance.map(([category]) => this.categoryNames[category]).join('、');
       advice.push(`💡 ${categories}の活動がまだありません。小さな一歩から始めてみましょう。`);
+    }
+
+    // アニメ特有のアドバイス
+    if (goals.weekly?.animes || goals.monthly?.animes) {
+      const weeklyAnimes = currentStats.weekly.animes || 0;
+      const monthlyAnimes = currentStats.monthly.animes || 0;
+      
+      if (weeklyAnimes === 0 && monthlyAnimes === 0) {
+        advice.push('📺 アニメの視聴がまだありません。短いアニメから始めてみませんか？');
+      } else if (weeklyAnimes > 0) {
+        advice.push('📺 アニメ視聴が順調ですね！完走まで集中して頑張りましょう！');
+      }
     }
 
     // 継続に関するアドバイス
@@ -682,6 +707,63 @@ async handleProgress(interaction) {
     }
 
     return advice.length > 0 ? advice.join('\n\n') : null;
+  }
+
+  /**
+   * カテゴリ別アドバイス生成（アニメ対応）
+   */
+  getCategoryAdvice(category, current, target) {
+    const percentage = Math.round((current / target) * 100);
+    
+    switch (category) {
+      case 'animes':
+        if (percentage >= 100) {
+          return '🎉 アニメ目標達成！新しいジャンルに挑戦してみませんか？';
+        } else if (percentage >= 50) {
+          return '📺 順調にアニメを視聴していますね！完走まで頑張りましょう！';
+        } else {
+          return '📺 短編アニメや映画版から始めると達成しやすいです！';
+        }
+      
+      case 'books':
+        if (percentage >= 100) {
+          return '📚 読書目標達成！新しいジャンルにも挑戦してみませんか？';
+        } else if (percentage >= 50) {
+          return '📖 良いペースで読書が進んでいます！';
+        } else {
+          return '📚 短い本や興味のある分野から始めてみましょう！';
+        }
+      
+      case 'movies':
+        if (percentage >= 100) {
+          return '🎬 映画目標達成！ドキュメンタリーなど新しいジャンルはいかがですか？';
+        } else if (percentage >= 50) {
+          return '🍿 映画鑑賞が順調ですね！';
+        } else {
+          return '🎬 短編映画から始めると達成しやすいです！';
+        }
+      
+      case 'activities':
+        if (percentage >= 100) {
+          return '🎯 活動目標達成！新しいチャレンジを考えてみませんか？';
+        } else if (percentage >= 50) {
+          return '💪 活動的に過ごしていますね！';
+        } else {
+          return '🎯 小さな活動から始めて習慣化していきましょう！';
+        }
+      
+      case 'reports':
+        if (percentage >= 100) {
+          return '📝 日報目標達成！継続が力になります！';
+        } else if (percentage >= 50) {
+          return '📋 日報の習慣が身についてきましたね！';
+        } else {
+          return '📝 短いメモからでも始めて記録の習慣をつけましょう！';
+        }
+      
+      default:
+        return null;
+    }
   }
 }
 
