@@ -327,6 +327,37 @@ class GoogleSheetsService {
     }
   }
 
+  /**
+   * IDで特定の本を取得
+   */
+  async getBookById(id) {
+    try {
+      console.log(`📚 ID: ${id} の本を検索中...`);
+      
+      const books = await this.getAllBooks();
+      const book = books.find(book => parseInt(book.id) === parseInt(id));
+      
+      if (!book) {
+        console.log(`❌ ID: ${id} の本が見つかりません`);
+        return null;
+      }
+      
+      console.log(`✅ 本が見つかりました: ${book.title} by ${book.author}`);
+      return {
+        id: parseInt(book.id),
+        title: book.title,
+        author: book.author,
+        memo: book.notes || '',
+        status: book.status,
+        created_at: book.registeredAt,
+        updated_at: book.date
+      };
+    } catch (error) {
+      console.error('getBookById エラー:', error);
+      return null;
+    }
+  }
+
  /**
  * 本を追加（修正版）
  */
@@ -498,17 +529,30 @@ async finishReading(id) {
   }
 
   /**
-   * ウィッシュリストの本を取得
+   * 買いたい本一覧を取得（修正版）
    */
   async getWishlistBooks() {
     try {
+      console.log('🛒 買いたい本を取得中...');
+      
       const books = await this.getAllBooks();
-      const wishlistBooks = books.filter(book => book.status === '買いたい');
+      console.log(`📚 全ての本: ${books.length}冊`);
+      
+      // want_to_buyステータスの本をフィルタリング
+      const wishlistBooks = books.filter(book => {
+        console.log(`📖 本チェック: ID=${book.id}, Status="${book.status}"`);
+        return book.status === 'want_to_buy';
+      });
+      
+      console.log(`🛒 買いたい本: ${wishlistBooks.length}冊`);
       
       // タイトル - 作者 の形式で返す
-      return wishlistBooks.map(book => `${book.title} - ${book.author}`);
+      const result = wishlistBooks.map(book => `[${book.id}] ${book.title} - ${book.author}`);
+      
+      console.log('✅ 買いたい本一覧:', result);
+      return result;
     } catch (error) {
-      console.error('❌ ウィッシュリスト取得エラー:', error.message);
+      console.error('❌ 買いたい本取得エラー:', error.message);
       return [];
     }
   }
@@ -518,14 +562,57 @@ async finishReading(id) {
    */
   async getWantToReadBooks() {
     try {
-      const books = await this.getAllBooks();
-      return books.filter(book => book.status === '積読');
+      const wantToReadBooks = await this.getBooksByStatus('want_to_read');
+      return wantToReadBooks.map(book => `[${book.id}] ${book.title} - ${book.author}`);
     } catch (error) {
       console.error('❌ 積読本取得エラー:', error.message);
       return [];
     }
   }
 
+  /**
+   * 読書中の本を取得
+   */
+  async getReadingBooks() {
+    try {
+      const readingBooks = await this.getBooksByStatus('reading');
+      return readingBooks.map(book => `[${book.id}] ${book.title} - ${book.author}`);
+    } catch (error) {
+      console.error('❌ 読書中の本取得エラー:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * 読了済みの本を取得
+   */
+  async getFinishedBooks() {
+    try {
+      const finishedBooks = await this.getBooksByStatus('finished');
+      return finishedBooks.map(book => `[${book.id}] ${book.title} - ${book.author}`);
+    } catch (error) {
+      console.error('❌ 読了済みの本取得エラー:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * 特定ステータスの本を取得するヘルパー
+   */
+  async getBooksByStatus(status) {
+    try {
+      console.log(`📚 ステータス "${status}" の本を取得中...`);
+      
+      const books = await this.getAllBooks();
+      const filteredBooks = books.filter(book => book.status === status);
+      
+      console.log(`✅ ステータス "${status}" の本: ${filteredBooks.length}冊`);
+      return filteredBooks;
+    } catch (error) {
+      console.error(`❌ ステータス "${status}" の本取得エラー:`, error.message);
+      return [];
+    }
+  }
   
 /**
  * 現在読書中の本を取得（通知用にフォーマット済み）
