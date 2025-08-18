@@ -230,7 +230,7 @@ class GoogleSheetsService {
   }
 
   /**
-   * データを更新
+   * データを更新（確認版）
    */
   async updateData(range, values) {
     if (!this.auth) {
@@ -246,7 +246,7 @@ class GoogleSheetsService {
           spreadsheetId: this.spreadsheetId,
           range,
           valueInputOption: 'RAW',
-          resource: { values: [values] }
+          resource: { values: [values] } // valuesを配列で包む
         });
       };
 
@@ -1189,7 +1189,7 @@ async getBookCounts() {
       console.error('❌ getAllAnimes エラー:', error);
       throw error;
     }
-  },
+  }
 
   /**
    * IDで特定のアニメを取得
@@ -1235,7 +1235,7 @@ async getBookCounts() {
       console.error('❌ getAnimeById エラー:', error);
       throw error;
     }
-  },
+  }
 
   /**
    * アニメを追加
@@ -1315,10 +1315,10 @@ async getBookCounts() {
       console.error('❌ アニメの追加エラー:', error.message);
       throw error;
     }
-  },
+  }
 
   /**
-   * アニメのステータスを更新
+   * アニメのステータスを更新（修正版）
    */
   async updateAnimeStatus(id, status, updateDate = null) {
     try {
@@ -1331,26 +1331,26 @@ async getBookCounts() {
       }
 
       const now = new Date().toLocaleString('ja-JP');
-      const updateData = [status, now]; // H列:ステータス, I列:更新日時
+      let success = false; // success変数を定義
       
       // 特定のステータスの場合は開始日・完了日も更新
       if (status === 'watching') {
         // 視聴開始の場合、開始日を設定
         const startDate = updateDate || now.slice(0, 10);
-        updateData.push(startDate); // J列:開始日
-        
+        const updateData = [status, now, startDate]; // H列:ステータス, I列:更新日時, J列:開始日
         const updateRange = `anime_master!H${rowIndex + 1}:J${rowIndex + 1}`;
-        const success = await this.updateData(updateRange, updateData);
+        success = await this.updateData(updateRange, updateData);
       } else if (status === 'completed') {
         // 完走の場合、完了日を設定
         const finishDate = updateDate || now.slice(0, 10);
-        updateData.push('', finishDate); // J列:開始日(空), K列:完了日
-        
+        const updateData = [status, now, '', finishDate]; // H列:ステータス, I列:更新日時, J列:開始日(空), K列:完了日
         const updateRange = `anime_master!H${rowIndex + 1}:K${rowIndex + 1}`;
-        const success = await this.updateData(updateRange, updateData);
+        success = await this.updateData(updateRange, updateData);
       } else {
+        // その他のステータスの場合
+        const updateData = [status, now]; // H列:ステータス, I列:更新日時
         const updateRange = `anime_master!H${rowIndex + 1}:I${rowIndex + 1}`;
-        const success = await this.updateData(updateRange, updateData);
+        success = await this.updateData(updateRange, updateData);
       }
       
       if (success) {
@@ -1370,10 +1370,10 @@ async getBookCounts() {
       console.error('アニメのステータス更新エラー:', error);
       return null;
     }
-  },
+  }
 
   /**
-   * アニメの視聴話数を更新
+   * アニメの視聴話数を更新（修正版）
    */
   async updateAnimeEpisodes(id, watchedEpisodes) {
     try {
@@ -1386,10 +1386,16 @@ async getBookCounts() {
       }
 
       const now = new Date().toLocaleString('ja-JP');
-      const updateRange = `anime_master!E${rowIndex + 1}:I${rowIndex + 1}`;
-      const updateValues = [watchedEpisodes, '', '', '', now]; // E列:視聴済み話数, I列:更新日時
+      const updateRange = `anime_master!E${rowIndex + 1}:E${rowIndex + 1}`; // E列:視聴済み話数のみ更新
+      const updateValues = [watchedEpisodes];
       
       const success = await this.updateData(updateRange, updateValues);
+      
+      // 更新日時も別途更新
+      if (success) {
+        const updateTimeRange = `anime_master!I${rowIndex + 1}:I${rowIndex + 1}`;
+        await this.updateData(updateTimeRange, [now]);
+      }
       
       if (success) {
         const row = values[rowIndex];
@@ -1408,14 +1414,14 @@ async getBookCounts() {
       console.error('アニメの話数更新エラー:', error);
       return null;
     }
-  },
+  }
 
   /**
    * アニメの視聴を開始
    */
   async startWatchingAnime(id) {
     return this.updateAnimeStatus(id, 'watching');
-  },
+  }
 
   /**
    * アニメを完走
@@ -1432,14 +1438,14 @@ async getBookCounts() {
       console.error('アニメ完走エラー:', error);
       return null;
     }
-  },
+  }
 
   /**
    * アニメを視聴中断
    */
   async dropAnime(id) {
     return this.updateAnimeStatus(id, 'dropped');
-  },
+  }
 
   /**
    * アニメの次の話数を視聴
@@ -1472,7 +1478,7 @@ async getBookCounts() {
       console.error('次話視聴記録エラー:', error);
       return null;
     }
-  },
+  }
 
   /**
    * エピソードログを追加
@@ -1497,7 +1503,7 @@ async getBookCounts() {
       console.error('❌ エピソードログ追加エラー:', error);
       return null;
     }
-  },
+  }
 
   /**
    * アニメのエピソードログを取得
@@ -1524,7 +1530,7 @@ async getBookCounts() {
       console.error('エピソードログ取得エラー:', error);
       return [];
     }
-  },
+  }
 
   /**
    * 特定ステータスのアニメを取得するヘルパー
@@ -1565,7 +1571,7 @@ async getBookCounts() {
       console.error('❌ getAnimesByStatus エラー:', error);
       throw error;
     }
-  },
+  }
 
   /**
    * アニメ一覧を取得（フォーマット済み）
@@ -1598,7 +1604,7 @@ async getBookCounts() {
       console.error('アニメ一覧取得エラー:', error);
       return ['📺 [1] テストアニメ - test (0/12話) (want_to_watch)'];
     }
-  },
+  }
 
   /**
    * アニメの統計を取得
@@ -1630,7 +1636,7 @@ async getBookCounts() {
         dropped: 0
       };
     }
-  },
+  }
 
   /**
    * アニメを検索
