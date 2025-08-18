@@ -1,7 +1,8 @@
-const { EmbedBuilder } = require('discord.js');
+// handlers/movieHandler.js - 選択式実装
+
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const GoogleSheetsService = require('../services/googleSheets');
 
-// GoogleSheetsServiceのインスタンスを作成
 const googleSheets = new GoogleSheetsService();
 
 module.exports = {
@@ -22,8 +23,8 @@ module.exports = {
         case 'list':
           await this.handleList(interaction);
           break;
-        case 'watchlist':
-          await this.handleWatchlist(interaction);
+        case 'wishlist':
+          await this.handleWishlist(interaction);
           break;
         case 'watched':
           await this.handleWatched(interaction);
@@ -49,20 +50,20 @@ module.exports = {
       
       const embed = new EmbedBuilder()
         .setTitle('🎬 映画を追加しました！')
-        .setColor('#E91E63')
+        .setColor('#4CAF50')
+        .setDescription('🎬 映画リストに新しい映画が追加されました！')
         .addFields(
           { name: 'ID', value: movieId.toString(), inline: true },
           { name: 'タイトル', value: title, inline: true },
-          { name: 'ステータス', value: '観たい', inline: true }
+          { name: 'ステータス', value: '🎬 観たい', inline: true }
         )
-        .setDescription('映画リストに追加されました！🍿✨')
         .setTimestamp();
       
       if (memo) {
         embed.addFields({ name: '備考', value: memo, inline: false });
       }
       
-      embed.setFooter({ text: '視聴したら /movie watch で記録しましょう！' });
+      embed.setFooter({ text: '視聴したら /movie watch で記録できます（選択式）' });
       
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
@@ -71,87 +72,157 @@ module.exports = {
     }
   },
 
+  // 🆕 選択式 - 観たい映画から選択
   async handleWatch(interaction) {
-    const watchId = interaction.options.getInteger('id');
-    
     try {
-      const watchedMovie = await googleSheets.watchMovie(watchId);
+      const wantToWatchMovies = await googleSheets.getMoviesByStatus('want_to_watch');
       
-      if (watchedMovie) {
+      if (wantToWatchMovies.length === 0) {
         const embed = new EmbedBuilder()
-          .setTitle('🎉 視聴完了！')
-          .setColor('#4CAF50')
-          .setDescription('素晴らしい！また一つ作品を完走しましたね！🎬✨')
-          .addFields(
-            { name: 'ID', value: watchedMovie.id.toString(), inline: true },
-            { name: 'タイトル', value: watchedMovie.title, inline: true },
-            { name: 'ステータス変更', value: '観たい → 視聴済み', inline: true }
-          )
-          .setFooter({ text: '感想を /report movie で記録してみませんか？' })
-          .setTimestamp();
-        
-        if (watchedMovie.memo) {
-          embed.addFields({ name: '備考', value: watchedMovie.memo, inline: false });
-        }
-        
-        await interaction.editReply({ embeds: [embed] });
-      } else {
-        const embed = new EmbedBuilder()
-          .setTitle('❓ 映画が見つかりません')
+          .setTitle('🎬 映画視聴記録')
           .setColor('#FF5722')
-          .setDescription(`ID: ${watchId} の映画が見つからないか、既に視聴済みです。`)
+          .setDescription('観たい映画がありません。')
           .addFields(
-            { name: '💡 確認方法', value: '`/movie list` で映画一覧を確認してください', inline: false }
-          )
-          .setTimestamp();
+            { name: '💡 ヒント', value: '`/movie add [タイトル]` で観たい映画を追加してください', inline: false }
+          );
         
         await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+      
+      if (wantToWatchMovies.length <= 25) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('movie_watch_select')
+          .setPlaceholder('視聴した映画を選択してください')
+          .addOptions(
+            wantToWatchMovies.map(movie => ({
+              label: `${movie.title}`.slice(0, 100),
+              description: `備考: ${movie.memo || 'なし'}`.slice(0, 100),
+              value: movie.id.toString()
+            }))
+          );
+        
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        const embed = new EmbedBuilder()
+          .setTitle('🎬 映画視聴記録')
+          .setColor('#2196F3')
+          .setDescription(`観たい映画が ${wantToWatchMovies.length} 本あります。視聴した映画を選択してください。`)
+          .addFields(
+            { name: '🎬 観たい映画', value: wantToWatchMovies.map(movie => `🎬 ${movie.title}`).join('\n').slice(0, 1024), inline: false }
+          );
+        
+        await interaction.editReply({ embeds: [embed], components: [row] });
+      } else {
+        await this.handleWatchWithPagination(interaction, wantToWatchMovies);
       }
     } catch (error) {
-      console.error('視聴記録エラー:', error);
-      await interaction.editReply('❌ 視聴記録中にエラーが発生しました。');
+      console.error('映画視聴選択エラー:', error);
+      await interaction.editReply('❌ 映画視聴選択中にエラーが発生しました。');
     }
   },
 
+  // 🆕 選択式 - 観たい映画からスキップ選択
   async handleSkip(interaction) {
-    const skipId = interaction.options.getInteger('id');
-    
     try {
-      const skippedMovie = await googleSheets.skipMovie(skipId);
+      const wantToWatchMovies = await googleSheets.getMoviesByStatus('want_to_watch');
       
-      if (skippedMovie) {
+      if (wantToWatchMovies.length === 0) {
         const embed = new EmbedBuilder()
-          .setTitle('😅 見逃してしまいました')
-          .setColor('#FF9800')
-          .setDescription('大丈夫です！また機会があったら挑戦してみてください！')
-          .addFields(
-            { name: 'ID', value: skippedMovie.id.toString(), inline: true },
-            { name: 'タイトル', value: skippedMovie.title, inline: true },
-            { name: 'ステータス変更', value: '観たい → 見逃し', inline: true }
-          )
-          .setFooter({ text: '時間ができたら再挑戦してみましょう！' })
-          .setTimestamp();
-        
-        if (skippedMovie.memo) {
-          embed.addFields({ name: '備考', value: skippedMovie.memo, inline: false });
-        }
-        
-        await interaction.editReply({ embeds: [embed] });
-      } else {
-        const embed = new EmbedBuilder()
-          .setTitle('❓ 映画が見つかりません')
+          .setTitle('😅 映画スキップ記録')
           .setColor('#FF5722')
-          .setDescription(`ID: ${skipId} の映画が見つからないか、既に処理済みです。`)
+          .setDescription('観たい映画がありません。')
           .addFields(
-            { name: '💡 確認方法', value: '`/movie list` で映画一覧を確認してください', inline: false }
-          )
-          .setTimestamp();
+            { name: '💡 ヒント', value: '`/movie add [タイトル]` で観たい映画を追加してください', inline: false }
+          );
         
         await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+      
+      if (wantToWatchMovies.length <= 25) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('movie_skip_select')
+          .setPlaceholder('スキップする映画を選択してください')
+          .addOptions(
+            wantToWatchMovies.map(movie => ({
+              label: `${movie.title}`.slice(0, 100),
+              description: `備考: ${movie.memo || 'なし'}`.slice(0, 100),
+              value: movie.id.toString()
+            }))
+          );
+        
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        const embed = new EmbedBuilder()
+          .setTitle('😅 映画スキップ記録')
+          .setColor('#FF9800')
+          .setDescription(`観たい映画が ${wantToWatchMovies.length} 本あります。スキップする映画を選択してください。`)
+          .addFields(
+            { name: '🎬 観たい映画', value: wantToWatchMovies.map(movie => `🎬 ${movie.title}`).join('\n').slice(0, 1024), inline: false }
+          );
+        
+        await interaction.editReply({ embeds: [embed], components: [row] });
+      } else {
+        await this.handleSkipWithPagination(interaction, wantToWatchMovies);
       }
     } catch (error) {
-      console.error('見逃し記録エラー:', error);
-      await interaction.editReply('❌ 見逃し記録中にエラーが発生しました。');
+      console.error('映画スキップ選択エラー:', error);
+      await interaction.editReply('❌ 映画スキップ選択中にエラーが発生しました。');
+    }
+  },
+
+  // 🆕 選択式 - 全ての映画から選択
+  async handleInfo(interaction) {
+    try {
+      const allMovies = await googleSheets.getAllMovies();
+      
+      if (allMovies.length === 0) {
+        const embed = new EmbedBuilder()
+          .setTitle('📄 映画の詳細情報')
+          .setColor('#FF5722')
+          .setDescription('登録されている映画がありません。')
+          .addFields(
+            { name: '💡 ヒント', value: '`/movie add [タイトル]` で映画を追加してください', inline: false }
+          );
+        
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+      
+      if (allMovies.length <= 25) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId('movie_info_select')
+          .setPlaceholder('詳細を確認する映画を選択してください')
+          .addOptions(
+            allMovies.map(movie => ({
+              label: `${movie.title}`.slice(0, 100),
+              description: `${this.getStatusText(movie.status)} | ${movie.memo || 'メモなし'}`.slice(0, 100),
+              value: movie.id.toString()
+            }))
+          );
+        
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📄 映画の詳細情報')
+          .setColor('#3F51B5')
+          .setDescription(`登録されている映画が ${allMovies.length} 本あります。詳細を確認する映画を選択してください。`)
+          .addFields(
+            { name: '🎬 登録済みの映画', value: allMovies.slice(0, 10).map(movie => `${this.getStatusEmoji(movie.status)} ${movie.title}`).join('\n').slice(0, 1024), inline: false }
+          );
+        
+        if (allMovies.length > 10) {
+          embed.addFields({ name: '📝 その他', value: `... 他${allMovies.length - 10}本`, inline: false });
+        }
+        
+        await interaction.editReply({ embeds: [embed], components: [row] });
+      } else {
+        await this.handleInfoWithPagination(interaction, allMovies);
+      }
+    } catch (error) {
+      console.error('映画詳細選択エラー:', error);
+      await interaction.editReply('❌ 映画詳細選択中にエラーが発生しました。');
     }
   },
 
@@ -165,7 +236,7 @@ module.exports = {
           .setColor('#9C27B0')
           .setDescription('まだ映画が登録されていません。')
           .addFields(
-            { name: '🍿 映画を追加', value: '`/movie add [タイトル]` で映画を追加できます', inline: false }
+            { name: '🎬 映画を追加', value: '`/movie add [タイトル]` で映画を追加できます', inline: false }
           )
           .setTimestamp();
         
@@ -173,10 +244,8 @@ module.exports = {
         return;
       }
       
-      // 映画をステータス別に分類
       const statusOrder = ['want_to_watch', 'watched', 'missed'];
       const groupedMovies = movies.reduce((acc, movie) => {
-        // 映画文字列からステータスを抽出 (例: "🎬 [1] Title (want_to_watch)")
         const statusMatch = movie.match(/\(([^)]+)\)$/);
         const status = statusMatch ? statusMatch[1] : 'want_to_watch';
         
@@ -188,36 +257,34 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setTitle('🎬 映画一覧')
         .setColor('#9C27B0')
-        .setDescription(`全 ${movies.length} 作品`)
+        .setDescription(`全 ${movies.length} 本の映画が登録されています`)
         .setTimestamp();
       
-      // ステータス別に表示
       statusOrder.forEach(status => {
         if (groupedMovies[status] && groupedMovies[status].length > 0) {
           const statusName = {
-            'want_to_watch': '🍿 観たい映画',
+            'want_to_watch': '🎬 観たい映画',
             'watched': '✅ 視聴済み',
             'missed': '😅 見逃し'
           }[status] || status;
           
-          // 最大10件まで表示
-          const displayMovies = groupedMovies[status].slice(0, 10);
-          const moreCount = groupedMovies[status].length - 10;
+          const displayMovies = groupedMovies[status].slice(0, 8);
+          const moreCount = groupedMovies[status].length - 8;
           
           let fieldValue = displayMovies.join('\n');
           if (moreCount > 0) {
-            fieldValue += `\n... 他${moreCount}件`;
+            fieldValue += `\n... 他${moreCount}本`;
           }
           
           embed.addFields({
-            name: `${statusName} (${groupedMovies[status].length}件)`,
+            name: `${statusName} (${groupedMovies[status].length}本)`,
             value: fieldValue,
             inline: false
           });
         }
       });
       
-      embed.setFooter({ text: '操作: /movie watch [ID] または /movie skip [ID]' });
+      embed.setFooter({ text: '操作: /movie watch, /movie skip (選択式で実行可能)' });
       
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
@@ -226,16 +293,21 @@ module.exports = {
     }
   },
 
-  async handleWatchlist(interaction) {
+  async handleWishlist(interaction) {
     try {
-      const movies = await googleSheets.getMovies();
-      const wantToWatchMovies = movies.filter(movie => movie.includes('(want_to_watch)'));
+      const allMovies = await googleSheets.getMovies();
+      
+      const wantToWatchMovies = allMovies.filter(movie => {
+        const statusMatch = movie.match(/\(([^)]+)\)$/);
+        const status = statusMatch ? statusMatch[1] : '';
+        return status === 'want_to_watch';
+      });
       
       if (wantToWatchMovies.length === 0) {
         const embed = new EmbedBuilder()
-          .setTitle('🍿 観たい映画一覧')
-          .setColor('#FF9800')
-          .setDescription('観たい映画がまだ登録されていません。')
+          .setTitle('🎬 観たい映画一覧')
+          .setColor('#E91E63')
+          .setDescription('観たい映画はまだ登録されていません。')
           .addFields(
             { name: '🎬 映画を追加', value: '`/movie add [タイトル]` で観たい映画を追加できます', inline: false }
           )
@@ -246,47 +318,58 @@ module.exports = {
       }
       
       const embed = new EmbedBuilder()
-        .setTitle('🍿 観たい映画一覧')
-        .setColor('#FF9800')
-        .setDescription(`${wantToWatchMovies.length} 本の映画が観たいリストにあります`)
+        .setTitle('🎬 観たい映画一覧')
+        .setColor('#E91E63')
+        .setDescription(`観たい映画が ${wantToWatchMovies.length} 本あります`)
         .setTimestamp();
       
-      // 最大15件まで表示
-      const displayMovies = wantToWatchMovies.slice(0, 15);
-      const moreCount = wantToWatchMovies.length - 15;
+      const sortedMovies = wantToWatchMovies.sort((a, b) => {
+        const idA = parseInt(a.match(/\[(\d+)\]/)?.[1] || 0);
+        const idB = parseInt(b.match(/\[(\d+)\]/)?.[1] || 0);
+        return idB - idA;
+      });
       
-      let movieList = displayMovies.join('\n');
+      const maxDisplay = 15;
+      const displayMovies = sortedMovies.slice(0, maxDisplay);
+      const moreCount = sortedMovies.length - maxDisplay;
+      
+      let fieldValue = displayMovies.join('\n');
       if (moreCount > 0) {
-        movieList += `\n... 他${moreCount}件`;
+        fieldValue += `\n... 他${moreCount}本`;
       }
       
       embed.addFields({
-        name: '🎬 映画リスト',
-        value: movieList,
+        name: `🎬 観たい映画 (${wantToWatchMovies.length}本)`,
+        value: fieldValue,
         inline: false
       });
       
-      embed.setFooter({ text: '視聴したら /movie watch [ID] で記録しましょう！' });
+      embed.setFooter({ text: '視聴したら /movie watch で記録できます（選択式）' });
       
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
-      console.error('観たい映画一覧取得エラー:', error);
+      console.error('❌ 観たい映画一覧取得エラー:', error);
       await interaction.editReply('❌ 観たい映画一覧の取得中にエラーが発生しました。');
     }
   },
 
   async handleWatched(interaction) {
     try {
-      const movies = await googleSheets.getMovies();
-      const watchedMovies = movies.filter(movie => movie.includes('(watched)'));
+      const allMovies = await googleSheets.getMovies();
+      
+      const watchedMovies = allMovies.filter(movie => {
+        const statusMatch = movie.match(/\(([^)]+)\)$/);
+        const status = statusMatch ? statusMatch[1] : '';
+        return status === 'watched';
+      });
       
       if (watchedMovies.length === 0) {
         const embed = new EmbedBuilder()
-          .setTitle('✅ 視聴済み映画一覧')
+          .setTitle('✅ 視聴済み映画')
           .setColor('#4CAF50')
-          .setDescription('まだ視聴済みの映画がありません。')
+          .setDescription('まだ視聴した映画はありません。')
           .addFields(
-            { name: '🎬 映画を観る', value: '観たい映画を `/movie watch [ID]` で視聴済みにできます', inline: false }
+            { name: '🎬 映画を視聴', value: '`/movie watch` で映画の視聴を記録できます（選択式）', inline: false }
           )
           .setTimestamp();
         
@@ -295,27 +378,26 @@ module.exports = {
       }
       
       const embed = new EmbedBuilder()
-        .setTitle('✅ 視聴済み映画一覧')
+        .setTitle('✅ 視聴済み映画')
         .setColor('#4CAF50')
-        .setDescription(`${watchedMovies.length} 本の映画を視聴済みです`)
+        .setDescription(`これまでに ${watchedMovies.length} 本視聴しました！`)
         .setTimestamp();
       
-      // 最大15件まで表示
-      const displayMovies = watchedMovies.slice(0, 15);
-      const moreCount = watchedMovies.length - 15;
+      const displayMovies = watchedMovies.slice(0, 10);
+      const moreCount = watchedMovies.length - 10;
       
-      let movieList = displayMovies.join('\n');
+      let fieldValue = displayMovies.join('\n');
       if (moreCount > 0) {
-        movieList += `\n... 他${moreCount}件`;
+        fieldValue += `\n... 他${moreCount}本`;
       }
       
       embed.addFields({
-        name: '🎬 視聴済み映画',
-        value: movieList,
+        name: `🎬 視聴済み (${watchedMovies.length}本)`,
+        value: fieldValue,
         inline: false
       });
       
-      embed.setFooter({ text: '感想は /report movie [ID] で記録できます' });
+      embed.setFooter({ text: '感想は /report movie で記録できます' });
       
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
@@ -324,93 +406,189 @@ module.exports = {
     }
   },
 
-  async handleInfo(interaction) {
-    try {
-      const id = interaction.options.getInteger('id');
-      const itemInfo = await googleSheets.getItemInfo('movie', id);
+  // ページネーション用のヘルパーメソッド
+  async handleWatchWithPagination(interaction, movies, page = 0) {
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(movies.length / itemsPerPage);
+    const currentMovies = movies.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`movie_watch_select_page_${page}`)
+      .setPlaceholder('視聴した映画を選択してください')
+      .addOptions(
+        currentMovies.map(movie => ({
+          label: `${movie.title}`.slice(0, 100),
+          description: `備考: ${movie.memo || 'なし'}`.slice(0, 100),
+          value: movie.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    if (totalPages > 1) {
+      const buttons = [];
       
-      if (!itemInfo) {
-        const embed = new EmbedBuilder()
-          .setTitle('❓ 映画が見つかりません')
-          .setColor('#FF5722')
-          .setDescription(`ID: ${id} の映画が見つかりませんでした。`)
-          .addFields(
-            { name: '💡 確認方法', value: '`/movie list` で映画一覧を確認してください', inline: false }
-          )
-          .setTimestamp();
-        
-        await interaction.editReply({ embeds: [embed] });
-        return;
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`movie_watch_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
       }
       
-      // 映画の詳細情報を取得
-      const movies = await googleSheets.getMovies();
-      const movieData = movies.find(movie => movie.includes(`[${id}]`));
-      
-      let status = 'want_to_watch';
-      if (movieData) {
-        if (movieData.includes('(watched)')) status = 'watched';
-        else if (movieData.includes('(missed)')) status = 'missed';
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`movie_watch_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
       }
       
-      const statusEmoji = {
-        'want_to_watch': '🍿',
-        'watched': '✅',
-        'missed': '😅'
-      };
-      
-      const statusText = {
-        'want_to_watch': '観たい',
-        'watched': '視聴済み',
-        'missed': '見逃し'
-      };
-      
-      const embed = new EmbedBuilder()
-        .setTitle(`🎬 ${itemInfo.title}`)
-        .setColor('#E91E63')
-        .addFields(
-          { name: 'ID', value: id.toString(), inline: true },
-          { name: 'ステータス', value: `${statusEmoji[status]} ${statusText[status]}`, inline: true },
-          { name: 'タイトル', value: itemInfo.title, inline: false }
-        )
-        .setTimestamp();
-      
-      // レポート履歴を取得
-      const reports = await googleSheets.getReportsByItem('movie', id);
-      if (reports.length > 0) {
-        const recentReports = reports.slice(0, 3);
-        const reportList = recentReports.map(report => {
-          const date = new Date(report.date).toLocaleDateString('ja-JP');
-          return `📅 ${date}: ${report.content.substring(0, 50)}...`;
-        }).join('\n');
-        
-        embed.addFields({
-          name: `📝 最近のレポート (${reports.length}件)`,
-          value: reportList,
-          inline: false
-        });
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
       }
-      
-      // アクション提案
-      const actions = [];
-      if (status === 'want_to_watch') {
-        actions.push('`/movie watch` で視聴済みに');
-        actions.push('`/movie skip` で見逃しに');
-      }
-      actions.push('`/report movie` で感想を記録');
-      
-      if (actions.length > 0) {
-        embed.addFields({
-          name: '💡 できること',
-          value: actions.join('\n'),
-          inline: false
-        });
-      }
-      
-      await interaction.editReply({ embeds: [embed] });
-    } catch (error) {
-      console.error('映画詳細取得エラー:', error);
-      await interaction.editReply('❌ 映画詳細の取得中にエラーが発生しました。');
     }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('🎬 映画視聴記録')
+      .setColor('#2196F3')
+      .setDescription(`観たい映画が ${movies.length} 本あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '🎬 観たい映画', value: currentMovies.map(movie => `🎬 ${movie.title}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    await interaction.editReply({ embeds: [embed], components });
+  },
+
+  async handleSkipWithPagination(interaction, movies, page = 0) {
+    // handleWatchWithPaginationと同様の実装
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(movies.length / itemsPerPage);
+    const currentMovies = movies.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`movie_skip_select_page_${page}`)
+      .setPlaceholder('スキップする映画を選択してください')
+      .addOptions(
+        currentMovies.map(movie => ({
+          label: `${movie.title}`.slice(0, 100),
+          description: `備考: ${movie.memo || 'なし'}`.slice(0, 100),
+          value: movie.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    if (totalPages > 1) {
+      const buttons = [];
+      
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`movie_skip_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`movie_skip_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
+      }
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('😅 映画スキップ記録')
+      .setColor('#FF9800')
+      .setDescription(`観たい映画が ${movies.length} 本あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '🎬 観たい映画', value: currentMovies.map(movie => `🎬 ${movie.title}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    await interaction.editReply({ embeds: [embed], components });
+  },
+
+  async handleInfoWithPagination(interaction, movies, page = 0) {
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(movies.length / itemsPerPage);
+    const currentMovies = movies.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`movie_info_select_page_${page}`)
+      .setPlaceholder('詳細を確認する映画を選択してください')
+      .addOptions(
+        currentMovies.map(movie => ({
+          label: `${movie.title}`.slice(0, 100),
+          description: `${this.getStatusText(movie.status)} | ${movie.memo || 'メモなし'}`.slice(0, 100),
+          value: movie.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    if (totalPages > 1) {
+      const buttons = [];
+      
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`movie_info_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`movie_info_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
+      }
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('📄 映画の詳細情報')
+      .setColor('#3F51B5')
+      .setDescription(`登録されている映画が ${movies.length} 本あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '🎬 登録済みの映画', value: currentMovies.map(movie => `${this.getStatusEmoji(movie.status)} ${movie.title}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    await interaction.editReply({ embeds: [embed], components });
+  },
+
+  // ヘルパーメソッド
+  getStatusEmoji(status) {
+    const emojis = {
+      'want_to_watch': '🎬',
+      'watched': '✅',
+      'missed': '😅'
+    };
+    return emojis[status] || '❓';
+  },
+
+  getStatusText(status) {
+    const texts = {
+      'want_to_watch': '観たい',
+      'watched': '視聴済み',
+      'missed': '見逃し'
+    };
+    return texts[status] || status;
   }
 };
