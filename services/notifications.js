@@ -201,14 +201,26 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
   // 🌅 基本通知メソッド
   // =====================================
 
+  // =====================================
+  // 🌅 修正版：朝の挨拶（undefinedエラー対応）
+  // =====================================
+
   async sendMorningGreeting() {
     try {
       const channel = this.getNotificationChannel();
       if (!channel) return;
 
-      const [readingBooks, wantToReadBooks, plannedActivities, watchingAnimes, wantToWatchAnimes, wantToWatchMovies] = await Promise.all([
+      // データを並行取得
+      const [
+        readingBooks, 
+        wantToReadBooksRaw, 
+        plannedActivities, 
+        watchingAnimes, 
+        wantToWatchAnimes, 
+        wantToWatchMoviesRaw
+      ] = await Promise.all([
         this.googleSheets.getCurrentReadingBooks(),
-        this.googleSheets.getWantToReadBooks(),
+        this.googleSheets.getBooksByStatus('want_to_read'), // 修正：直接構造化データを取得
         this.googleSheets.getActivities().then(activities => 
           activities.filter(activity => activity.includes('(planned)')).slice(0, 5)
         ),
@@ -216,6 +228,14 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         this.googleSheets.getAnimesByStatus('want_to_watch'),
         this.googleSheets.getWantToWatchMovies()
       ]);
+
+      console.log('🔍 朝の挨拶データ確認:', {
+        readingBooks: readingBooks.length,
+        wantToReadBooksRaw: wantToReadBooksRaw.length,
+        watchingAnimes: watchingAnimes.length,
+        wantToWatchAnimes: wantToWatchAnimes.length,
+        wantToWatchMoviesRaw: wantToWatchMoviesRaw.length
+      });
 
       const embed = new EmbedBuilder()
         .setTitle('☀️ おはようございます！')
@@ -245,22 +265,33 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
         });
       }
 
-      // 今日のおすすめ（複数カテゴリ統合）
+      // 今日のおすすめ（複数カテゴリ統合・修正版）
       const recommendations = [];
       
-      if (wantToReadBooks.length > 0) {
-        recommendations.push(...wantToReadBooks.slice(0, 2)
+      // 積読本から2冊（構造化データから取得）
+      if (wantToReadBooksRaw.length > 0) {
+        recommendations.push(...wantToReadBooksRaw.slice(0, 2)
           .map(book => `📋 ${book.title} - ${book.author}`));
       }
       
+      // 観たいアニメから2本
       if (wantToWatchAnimes.length > 0) {
         recommendations.push(...wantToWatchAnimes.slice(0, 2)
           .map(anime => `🍿 ${anime.title} (${anime.total_episodes}話)`));
       }
       
-      if (wantToWatchMovies.length > 0) {
-        recommendations.push(...wantToWatchMovies.slice(0, 2)
-          .map(movie => `🎬 ${movie}`));
+      // 観たい映画から2本（文字列配列の解析）
+      if (wantToWatchMoviesRaw.length > 0) {
+        recommendations.push(...wantToWatchMoviesRaw.slice(0, 2)
+          .map(movieStr => {
+            // 形式: "[ID] タイトル" または "🎬 [ID] タイトル"
+            const match = movieStr.match(/\[(\d+)\]\s*(.+?)(?:\s*\(|$)/);
+            if (match) {
+              return `🎬 ${match[2].trim()}`;
+            }
+            // フォールバック：そのまま表示
+            return `🎬 ${movieStr.replace(/🎬\s*/, '')}`;
+          }));
       }
 
       if (recommendations.length > 0) {
@@ -303,10 +334,22 @@ this.scheduleTask('monthly_summary_report', '0 17 28-31 * *', () => {
       embed.setFooter({ text: '今日も一歩ずつ前進していきましょう！' });
 
       await channel.send({ embeds: [embed] });
-      console.log('☀️ 朝の挨拶を送信しました（アニメ対応版）');
+      console.log('☀️ 朝の挨拶を送信しました（修正版）');
 
     } catch (error) {
       console.error('朝の挨拶送信エラー:', error);
+      
+      // エラー時のフォールバック通知
+      try {
+        const channel = this.getNotificationChannel();
+        if (channel) {
+          await channel.send({
+            content: '☀️ おはようございます！今日も良い一日を！\n（データ取得中にエラーが発生しましたが、気持ちを切り替えて頑張りましょう！）'
+          });
+        }
+      } catch (fallbackError) {
+        console.error('フォールバック通知エラー:', fallbackError);
+      }
     }
   }
 
