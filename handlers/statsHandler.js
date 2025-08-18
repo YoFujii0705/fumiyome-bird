@@ -1,12 +1,12 @@
-// handlers/statsHandler.js - 修正版
+// handlers/statsHandler.js - アニメ対応修正版
 
 const { EmbedBuilder } = require('discord.js');
 const GoogleSheetsService = require('../services/googleSheets');
-const StatsUtility = require('../services/statsUtility'); // 🆕 追加
+const StatsUtility = require('../services/statsUtility');
 
 // GoogleSheetsServiceのインスタンスを作成
 const googleSheets = new GoogleSheetsService();
-const statsUtil = new StatsUtility(googleSheets); // 🆕 追加
+const statsUtil = new StatsUtility(googleSheets);
 
 module.exports = {
   async execute(interaction) {
@@ -15,7 +15,7 @@ module.exports = {
     try {
       switch (subcommand) {
         case 'summary':
-          await module.exports.showSummary(interaction); // ← このように修正
+          await module.exports.showSummary(interaction);
           break;
         case 'weekly':
           await module.exports.showWeekly(interaction);
@@ -25,6 +25,9 @@ module.exports = {
           break;
         case 'books':
           await module.exports.showBooks(interaction);
+          break;
+        case 'anime': // 🆕 アニメ統計追加
+          await module.exports.showAnime(interaction);
           break;
         case 'current':
           await module.exports.showCurrent(interaction);
@@ -47,18 +50,19 @@ module.exports = {
     }
   },
 
-  // 📊 全体統計サマリー
+  // 📊 全体統計サマリー（アニメ追加）
   async showSummary(interaction) {
     try {
-      // 全ての統計データを並行取得
-      const [bookCounts, movieCounts, activityCounts] = await Promise.all([
+      // 全ての統計データを並行取得（アニメ追加）
+      const [bookCounts, movieCounts, activityCounts, animeCounts] = await Promise.all([
         googleSheets.getBookCounts(),
         googleSheets.getMovieCounts(),
-        googleSheets.getActivityCounts()
+        googleSheets.getActivityCounts(),
+        googleSheets.getAnimeCounts() // 🆕 アニメカウント追加
       ]);
       
-      const totalItems = bookCounts.total + movieCounts.total + activityCounts.total;
-      const completedItems = bookCounts.finished + movieCounts.watched + activityCounts.done;
+      const totalItems = bookCounts.total + movieCounts.total + activityCounts.total + animeCounts.total;
+      const completedItems = bookCounts.finished + movieCounts.watched + activityCounts.done + animeCounts.completed;
       const completionRate = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
       
       const embed = new EmbedBuilder()
@@ -74,6 +78,11 @@ module.exports = {
           { 
             name: '🎬 映画の管理状況', 
             value: `🍿 観たい: **${movieCounts.wantToWatch}**本\n✅ 視聴済み: **${movieCounts.watched}**本\n😅 見逃し: **${movieCounts.missed || 0}**本`, 
+            inline: true 
+          },
+          { 
+            name: '📺 アニメの管理状況', // 🆕 アニメセクション追加
+            value: `🍿 観たい: **${animeCounts.wantToWatch || 0}**本\n📺 視聴中: **${animeCounts.watching || 0}**本\n✅ 完走済み: **${animeCounts.completed || 0}**本\n💔 中断: **${animeCounts.dropped || 0}**本`, 
             inline: true 
           },
           { 
@@ -112,13 +121,14 @@ module.exports = {
     }
   },
 
-  // 📅 週次統計
+  // 📅 週次統計（アニメ追加）
   async showWeekly(interaction) {
     try {
       const weeklyStats = await googleSheets.getWeeklyStats();
       const recentReports = await googleSheets.getRecentReports(7);
       
-      const totalCompleted = weeklyStats.finishedBooks + weeklyStats.watchedMovies + weeklyStats.completedActivities;
+      const totalCompleted = weeklyStats.finishedBooks + weeklyStats.watchedMovies + 
+                           weeklyStats.completedActivities + (weeklyStats.completedAnimes || 0); // 🆕 アニメ追加
       
       const embed = new EmbedBuilder()
         .setTitle('📅 今週の活動統計')
@@ -127,15 +137,17 @@ module.exports = {
         .addFields(
           { name: '📚 読了した本', value: `**${weeklyStats.finishedBooks}**冊`, inline: true },
           { name: '🎬 視聴した映画', value: `**${weeklyStats.watchedMovies}**本`, inline: true },
+          { name: '📺 完走したアニメ', value: `**${weeklyStats.completedAnimes || 0}**本`, inline: true }, // 🆕 アニメ追加
           { name: '🎯 完了した活動', value: `**${weeklyStats.completedActivities}**件`, inline: true },
           { name: '📝 記録した日報', value: `**${recentReports.length}**件`, inline: true }
         )
         .setTimestamp();
       
-      // 週次目標との比較（仮想的な目標設定）
+      // 週次目標との比較（アニメ追加）
       const weeklyGoals = {
         books: 2,
         movies: 3,
+        animes: 1, // 🆕 アニメ目標追加
         activities: 5,
         reports: 7
       };
@@ -143,6 +155,7 @@ module.exports = {
       const achievements = [];
       if (weeklyStats.finishedBooks >= weeklyGoals.books) achievements.push('📚 読書目標達成！');
       if (weeklyStats.watchedMovies >= weeklyGoals.movies) achievements.push('🎬 映画目標達成！');
+      if ((weeklyStats.completedAnimes || 0) >= weeklyGoals.animes) achievements.push('📺 アニメ目標達成！'); // 🆕 アニメ目標
       if (weeklyStats.completedActivities >= weeklyGoals.activities) achievements.push('🎯 活動目標達成！');
       if (recentReports.length >= weeklyGoals.reports) achievements.push('📝 日報目標達成！');
       
@@ -174,16 +187,18 @@ module.exports = {
     }
   },
 
-  // 🗓️ 月次統計
+  // 🗓️ 月次統計（アニメ追加）
   async showMonthly(interaction) {
     try {
-      const [monthlyStats, bookTitles, recentReports] = await Promise.all([
+      const [monthlyStats, bookTitles, animeTitles, recentReports] = await Promise.all([
         googleSheets.getMonthlyStats(),
         googleSheets.getMonthlyBookTitles(),
+        googleSheets.getMonthlyAnimeTitles(), // 🆕 アニメタイトル追加
         googleSheets.getRecentReports(30)
       ]);
       
-      const totalCompleted = monthlyStats.finishedBooks + monthlyStats.watchedMovies + monthlyStats.completedActivities;
+      const totalCompleted = monthlyStats.finishedBooks + monthlyStats.watchedMovies + 
+                           monthlyStats.completedActivities + (monthlyStats.completedAnimes || 0); // 🆕 アニメ追加
       
       const embed = new EmbedBuilder()
         .setTitle('🗓️ 今月の活動統計')
@@ -192,6 +207,7 @@ module.exports = {
         .addFields(
           { name: '📚 読了冊数', value: `**${monthlyStats.finishedBooks}**冊`, inline: true },
           { name: '🎬 視聴本数', value: `**${monthlyStats.watchedMovies}**本`, inline: true },
+          { name: '📺 完走作品', value: `**${monthlyStats.completedAnimes || 0}**本`, inline: true }, // 🆕 アニメ追加
           { name: '🎯 完了活動', value: `**${monthlyStats.completedActivities}**件`, inline: true },
           { name: '📝 日報件数', value: `**${recentReports.length}**件`, inline: true }
         )
@@ -199,8 +215,8 @@ module.exports = {
       
       // 今月読了した本のリスト
       if (bookTitles && bookTitles.length > 0) {
-        const displayTitles = bookTitles.slice(0, 8);
-        const moreTitles = bookTitles.length - 8;
+        const displayTitles = bookTitles.slice(0, 5);
+        const moreTitles = bookTitles.length - 5;
         
         let titlesList = displayTitles.map((title, index) => `${index + 1}. ${title}`).join('\n');
         if (moreTitles > 0) {
@@ -209,6 +225,23 @@ module.exports = {
         
         embed.addFields({ 
           name: '🏆 今月読了した本', 
+          value: titlesList, 
+          inline: false 
+        });
+      }
+
+      // 🆕 今月完走したアニメのリスト
+      if (animeTitles && animeTitles.length > 0) {
+        const displayTitles = animeTitles.slice(0, 5);
+        const moreTitles = animeTitles.length - 5;
+        
+        let titlesList = displayTitles.map((title, index) => `${index + 1}. ${title}`).join('\n');
+        if (moreTitles > 0) {
+          titlesList += `\n... 他${moreTitles}本`;
+        }
+        
+        embed.addFields({ 
+          name: '🎉 今月完走したアニメ', 
           value: titlesList, 
           inline: false 
         });
@@ -236,7 +269,7 @@ module.exports = {
     }
   },
 
-  // 📚 読書統計詳細
+  // 📚 読書統計詳細（既存のまま）
   async showBooks(interaction) {
     try {
       const [bookCounts, allStats] = await Promise.all([
@@ -303,7 +336,84 @@ module.exports = {
     }
   },
 
-  // ⚡ 現在の進行状況
+  // 🆕 📺 アニメ統計詳細
+  async showAnime(interaction) {
+    try {
+      const [animeCounts, allStats] = await Promise.all([
+        googleSheets.getAnimeCounts(),
+        googleSheets.getAllStats()
+      ]);
+      
+      // アニメ視聴ペースの計算
+      const monthlyStats = await googleSheets.getMonthlyStats();
+      const weeklyStats = await googleSheets.getWeeklyStats();
+      
+      const embed = new EmbedBuilder()
+        .setTitle('📺 アニメ視聴統計詳細')
+        .setColor('#FF6B6B')
+        .setDescription(`全 **${animeCounts.total}** 本のアニメを管理中`)
+        .addFields(
+          { 
+            name: '📊 ステータス別統計', 
+            value: `🍿 観たい: **${animeCounts.wantToWatch || 0}**本\n📺 視聴中: **${animeCounts.watching || 0}**本\n✅ 完走済み: **${animeCounts.completed || 0}**本\n💔 中断: **${animeCounts.dropped || 0}**本`, 
+            inline: true 
+          },
+          { 
+            name: '📅 期間別完走数', 
+            value: `今月: **${monthlyStats.completedAnimes || 0}**本\n今週: **${weeklyStats.completedAnimes || 0}**本\n1日平均: **${((monthlyStats.completedAnimes || 0) / 30).toFixed(1)}**本`, 
+            inline: true 
+          }
+        )
+        .setTimestamp();
+      
+      // アニメ視聴効率の分析
+      const totalAnimes = animeCounts.total;
+      const completionRate = totalAnimes > 0 ? Math.round(((animeCounts.completed || 0) / totalAnimes) * 100) : 0;
+      const dropRate = totalAnimes > 0 ? Math.round(((animeCounts.dropped || 0) / totalAnimes) * 100) : 0;
+      
+      embed.addFields({
+        name: '📈 アニメ視聴効率分析',
+        value: `完走率: **${completionRate}%**\n${module.exports.generateProgressBar(completionRate)}\n中断率: **${dropRate}%**\n継続力: **${100 - dropRate}%**`,
+        inline: false
+      });
+      
+      // アニメ視聴ペースの評価
+      const animePace = module.exports.evaluateAnimePace(monthlyStats.completedAnimes || 0);
+      embed.addFields({
+        name: '⚡ アニメ視聴ペース評価',
+        value: `${animePace.icon} **${animePace.level}**\n${animePace.comment}`,
+        inline: false
+      });
+      
+      // アニメ視聴目標の提案
+      const nextGoal = module.exports.suggestAnimeGoal(monthlyStats.completedAnimes || 0, animeCounts.wantToWatch || 0);
+      if (nextGoal) {
+        embed.addFields({
+          name: '🎯 おすすめ目標',
+          value: nextGoal,
+          inline: false
+        });
+      }
+      
+      // 視聴中アニメの進捗情報
+      if (animeCounts.watching > 0) {
+        embed.addFields({
+          name: '📺 現在の視聴状況',
+          value: `${animeCounts.watching}本のアニメを同時視聴中です。\n集中して完走を目指しましょう！`,
+          inline: false
+        });
+      }
+      
+      embed.setFooter({ text: 'アニメは心を豊かにする素晴らしいエンターテイメントです！' });
+      
+      await interaction.editReply({ embeds: [embed] });
+    } catch (error) {
+      console.error('アニメ統計エラー:', error);
+      await interaction.editReply('❌ アニメ統計の取得中にエラーが発生しました。');
+    }
+  },
+
+  // ⚡ 現在の進行状況（アニメ追加）
   async showCurrent(interaction) {
     try {
       const currentProgress = await googleSheets.getCurrentProgress();
@@ -315,6 +425,12 @@ module.exports = {
       const movieList = currentProgress.wantToWatchMovies.length > 0
         ? currentProgress.wantToWatchMovies.slice(0, 8).map(movie => `🍿 [${movie.id}] ${movie.title}`).join('\n')
         : '観たい映画がありません';
+      
+      // 🆕 視聴中アニメの取得
+      const watchingAnimes = await googleSheets.getAnimesByStatus('watching');
+      const animeList = watchingAnimes.length > 0
+        ? watchingAnimes.slice(0, 8).map(anime => `📺 [${anime.id}] ${anime.title} (${anime.watched_episodes}/${anime.total_episodes}話)`).join('\n')
+        : '現在視聴中のアニメはありません';
       
       // 予定中の活動も取得
       const activities = await googleSheets.getActivities();
@@ -334,6 +450,7 @@ module.exports = {
         .addFields(
           { name: '📖 読書中の本', value: readingList, inline: false },
           { name: '🎬 観たい映画', value: movieList, inline: false },
+          { name: '📺 視聴中のアニメ', value: animeList, inline: false }, // 🆕 アニメ追加
           { name: '🎯 予定中の活動', value: activityList, inline: false }
         )
         .setTimestamp();
@@ -341,6 +458,7 @@ module.exports = {
       // 進行状況のサマリー
       const totalInProgress = currentProgress.readingBooks.length + 
                              currentProgress.wantToWatchMovies.length + 
+                             watchingAnimes.length + // 🆕 アニメ追加
                              plannedActivities.length;
       
       if (totalInProgress > 0) {
@@ -358,6 +476,9 @@ module.exports = {
         if (currentProgress.wantToWatchMovies.length > 0) {
           suggestions.push('🎬 映画を観る');
         }
+        if (watchingAnimes.length > 0) { // 🆕 アニメ追加
+          suggestions.push('📺 アニメを視聴する');
+        }
         if (plannedActivities.length > 0) {
           suggestions.push('🎯 活動を実行する');
         }
@@ -373,7 +494,7 @@ module.exports = {
         embed.setDescription('現在進行中のアイテムがありません。新しい目標を設定してみませんか？');
         embed.addFields({
           name: '🚀 新しく始めませんか？',
-          value: '• `/book add` - 新しい本を追加\n• `/movie add` - 観たい映画を追加\n• `/activity add` - 新しい活動を追加',
+          value: '• `/book add` - 新しい本を追加\n• `/movie add` - 観たい映画を追加\n• `/anime add` - 新しいアニメを追加\n• `/activity add` - 新しい活動を追加', // 🆕 アニメ追加
           inline: false
         });
       }
@@ -387,7 +508,7 @@ module.exports = {
     }
   },
 
-  // 🎯 目標達成状況
+  // 🎯 目標達成状況（アニメ追加）
   async showGoals(interaction) {
     try {
       const [weeklyStats, monthlyStats] = await Promise.all([
@@ -395,9 +516,9 @@ module.exports = {
         googleSheets.getMonthlyStats()
       ]);
 
-      // 目標設定（config/constants.jsから）
-      const weeklyGoals = { books: 2, movies: 3, activities: 5 };
-      const monthlyGoals = { books: 8, movies: 12, activities: 20 };
+      // 目標設定（アニメ追加）
+      const weeklyGoals = { books: 2, movies: 3, animes: 1, activities: 5 }; // 🆕 アニメ追加
+      const monthlyGoals = { books: 8, movies: 12, animes: 4, activities: 20 }; // 🆕 アニメ追加
 
       const embed = new EmbedBuilder()
         .setTitle('🎯 目標達成状況')
@@ -408,6 +529,7 @@ module.exports = {
       // 週次目標
       const bookWeeklyRate = Math.round((weeklyStats.finishedBooks / weeklyGoals.books) * 100);
       const movieWeeklyRate = Math.round((weeklyStats.watchedMovies / weeklyGoals.movies) * 100);
+      const animeWeeklyRate = Math.round(((weeklyStats.completedAnimes || 0) / weeklyGoals.animes) * 100); // 🆕 アニメ追加
       const activityWeeklyRate = Math.round((weeklyStats.completedActivities / weeklyGoals.activities) * 100);
 
       embed.addFields({
@@ -415,6 +537,7 @@ module.exports = {
         value: 
           `📚 読書: ${weeklyStats.finishedBooks}/${weeklyGoals.books}冊 (${bookWeeklyRate}%) ${module.exports.getProgressBar(bookWeeklyRate)}\n` +
           `🎬 映画: ${weeklyStats.watchedMovies}/${weeklyGoals.movies}本 (${movieWeeklyRate}%) ${module.exports.getProgressBar(movieWeeklyRate)}\n` +
+          `📺 アニメ: ${weeklyStats.completedAnimes || 0}/${weeklyGoals.animes}本 (${animeWeeklyRate}%) ${module.exports.getProgressBar(animeWeeklyRate)}\n` +
           `🎯 活動: ${weeklyStats.completedActivities}/${weeklyGoals.activities}件 (${activityWeeklyRate}%) ${module.exports.getProgressBar(activityWeeklyRate)}`,
         inline: false
       });
@@ -422,6 +545,7 @@ module.exports = {
       // 月次目標
       const bookMonthlyRate = Math.round((monthlyStats.finishedBooks / monthlyGoals.books) * 100);
       const movieMonthlyRate = Math.round((monthlyStats.watchedMovies / monthlyGoals.movies) * 100);
+      const animeMonthlyRate = Math.round(((monthlyStats.completedAnimes || 0) / monthlyGoals.animes) * 100); // 🆕 アニメ追加
       const activityMonthlyRate = Math.round((monthlyStats.completedActivities / monthlyGoals.activities) * 100);
 
       embed.addFields({
@@ -429,17 +553,20 @@ module.exports = {
         value: 
           `📚 読書: ${monthlyStats.finishedBooks}/${monthlyGoals.books}冊 (${bookMonthlyRate}%) ${module.exports.getProgressBar(bookMonthlyRate)}\n` +
           `🎬 映画: ${monthlyStats.watchedMovies}/${monthlyGoals.movies}本 (${movieMonthlyRate}%) ${module.exports.getProgressBar(movieMonthlyRate)}\n` +
+          `📺 アニメ: ${monthlyStats.completedAnimes || 0}/${monthlyGoals.animes}本 (${animeMonthlyRate}%) ${module.exports.getProgressBar(animeMonthlyRate)}\n` +
           `🎯 活動: ${monthlyStats.completedActivities}/${monthlyGoals.activities}件 (${activityMonthlyRate}%) ${module.exports.getProgressBar(activityMonthlyRate)}`,
         inline: false
       });
 
-      // 達成バッジ
+      // 達成バッジ（アニメ追加）
       const badges = [];
       if (bookWeeklyRate >= 100) badges.push('📚 週間読書達成');
       if (movieWeeklyRate >= 100) badges.push('🎬 週間映画達成');
+      if (animeWeeklyRate >= 100) badges.push('📺 週間アニメ達成'); // 🆕 アニメ追加
       if (activityWeeklyRate >= 100) badges.push('🎯 週間活動達成');
       if (bookMonthlyRate >= 100) badges.push('📚 月間読書達成');
       if (movieMonthlyRate >= 100) badges.push('🎬 月間映画達成');
+      if (animeMonthlyRate >= 100) badges.push('📺 月間アニメ達成'); // 🆕 アニメ追加
       if (activityMonthlyRate >= 100) badges.push('🎯 月間活動達成');
 
       if (badges.length > 0) {
@@ -457,24 +584,24 @@ module.exports = {
     }
   },
 
-  // 📈 トレンド分析（StatsUtilityを使用する版に更新）
+  // 📈 トレンド分析（アニメ対応版）
   async showTrends(interaction) {
     try {
       const [weeklyStats, monthlyStats, reports, detailedTrends] = await Promise.all([
         googleSheets.getWeeklyStats(),
         googleSheets.getMonthlyStats(), 
         googleSheets.getRecentReports(60),
-        statsUtil.calculateDetailedTrends() // 🆕 StatsUtilityを使用
+        statsUtil.calculateDetailedTrends() // StatsUtilityを使用
       ]);
 
       const embed = new EmbedBuilder()
         .setTitle('📈 活動トレンド分析')
         .setColor('#FF5722')
-        .setDescription('過去の活動パターンから傾向を分析しました')
+        .setDescription('過去の活動パターンから傾向を分析しました（アニメ含む）')
         .addFields(
           { 
             name: '📊 詳細ペース分析', 
-            value: detailedTrends.paceAnalysis, // 🆕 詳細な分析結果
+            value: detailedTrends.paceAnalysis,
             inline: false 
           },
           { 
@@ -503,7 +630,7 @@ module.exports = {
     }
   },
 
-  // 📊 期間比較（完全版に更新）
+  // 📊 期間比較（アニメ対応版）
   async showCompare(interaction) {
     try {
       const period = interaction.options.getString('period');
@@ -511,10 +638,10 @@ module.exports = {
       let compareData;
       switch (period) {
         case 'week':
-          compareData = await this.compareWeeks(); // 🆕 完全版に更新
+          compareData = await this.compareWeeks();
           break;
         case 'month':
-          compareData = await this.compareMonths(); // 🆕 完全版に更新
+          compareData = await this.compareMonths();
           break;
         case 'year':
           compareData = await this.compareYears();
@@ -540,13 +667,13 @@ module.exports = {
   },
 
   // ===============================
-  // ヘルパーメソッド（更新版）
+  // ヘルパーメソッド（アニメ対応版）
   // ===============================
 
-  // 📅 完全版週次比較
+  // 📅 アニメ対応週次比較
   async compareWeeks() {
     try {
-      const comparison = await statsUtil.getEnhancedWeeklyComparison(); // 🆕 StatsUtilityを使用
+      const comparison = await statsUtil.getEnhancedWeeklyComparison();
       
       if (!comparison) {
         return {
@@ -558,7 +685,7 @@ module.exports = {
       }
 
       return {
-        title: '📅 週次比較分析 - 過去3週間',
+        title: '📅 週次比較分析 - 過去3週間（アニメ含む）',
         description: '週単位での活動量推移を詳しく分析しました',
         fields: [
           {
@@ -578,7 +705,7 @@ module.exports = {
           },
           {
             name: '💡 分析結果',
-            value: this.generateWeeklyInsights(comparison.growth), // 🆕 洞察生成
+            value: this.generateWeeklyInsights(comparison.growth),
             inline: false
           }
         ],
@@ -595,26 +722,25 @@ module.exports = {
     }
   },
 
-  // 📊 完全版月次比較
+  // 📊 アニメ対応月次比較
   async compareMonths() {
     try {
-      // 過去3ヶ月のデータを取得
       const [thisMonth, lastMonth, twoMonthsAgo] = await Promise.all([
         googleSheets.getMonthlyStats(),
-        statsUtil.getMonthlyStatsForDate(statsUtil.getPreviousMonth(1)), // 🆕 StatsUtilityを使用
-        statsUtil.getMonthlyStatsForDate(statsUtil.getPreviousMonth(2))  // 🆕 StatsUtilityを使用
+        statsUtil.getMonthlyStatsForDate(statsUtil.getPreviousMonth(1)),
+        statsUtil.getMonthlyStatsForDate(statsUtil.getPreviousMonth(2))
       ]);
 
-      const monthNames = statsUtil.getLastThreeMonthNames(); // 🆕 StatsUtilityを使用
-      const growthAnalysis = statsUtil.calculateGrowthRates(twoMonthsAgo, lastMonth, thisMonth); // 🆕 StatsUtilityを使用
+      const monthNames = statsUtil.getLastThreeMonthNames();
+      const growthAnalysis = statsUtil.calculateGrowthRates(twoMonthsAgo, lastMonth, thisMonth);
       
       return {
-        title: '📊 月次比較分析 - 過去3ヶ月',
+        title: '📊 月次比較分析 - 過去3ヶ月（アニメ含む）',
         description: '月単位での成長パターンと傾向を分析しました',
         fields: [
           {
             name: '📈 3ヶ月間の推移',
-            value: statsUtil.formatThreeMonthComparison(twoMonthsAgo, lastMonth, thisMonth, monthNames), // 🆕 StatsUtilityを使用
+            value: statsUtil.formatThreeMonthComparison(twoMonthsAgo, lastMonth, thisMonth, monthNames),
             inline: false
           },
           {
@@ -623,13 +749,13 @@ module.exports = {
             inline: false
           },
           {
-            name: '🎯 カテゴリ別比較',
-            value: this.generateCategoryComparison(twoMonthsAgo, lastMonth, thisMonth), // 新規メソッド
+            name: '🎯 カテゴリ別比較（アニメ含む）',
+            value: this.generateCategoryComparisonWithAnime(twoMonthsAgo, lastMonth, thisMonth),
             inline: false
           },
           {
             name: '🔮 来月の予測',
-            value: this.predictNextMonthTrend(twoMonthsAgo, lastMonth, thisMonth), // 新規メソッド
+            value: this.predictNextMonthTrendWithAnime(twoMonthsAgo, lastMonth, thisMonth),
             inline: false
           }
         ],
@@ -646,39 +772,25 @@ module.exports = {
     }
   },
 
-  // 🆕 週次洞察生成
-  generateWeeklyInsights(growth) {
-    const { monthlyGrowth } = growth;
-    
-    if (monthlyGrowth >= 20) {
-      return '🚀 **急成長中！** 素晴らしいペースです！この調子で継続しましょう！';
-    } else if (monthlyGrowth >= 10) {
-      return '📈 **順調な成長** が見られます。安定したペースを保っていますね！';
-    } else if (monthlyGrowth >= 0) {
-      return '➡️ **安定したペース** です。継続的な活動が素晴らしいですね！';
-    } else {
-      return '🔄 **調整期間** かもしれません。無理せず、自分のペースで続けましょう！';
-    }
-  },
-
-  // 🆕 カテゴリ別比較生成
-  generateCategoryComparison(twoMonthsAgo, lastMonth, thisMonth) {
-    const categories = ['finishedBooks', 'watchedMovies', 'completedActivities'];
-    const categoryNames = ['📚 読書', '🎬 映画', '🎯 活動'];
+  // 🆕 アニメ対応カテゴリ別比較生成
+  generateCategoryComparisonWithAnime(twoMonthsAgo, lastMonth, thisMonth) {
+    const categories = ['finishedBooks', 'watchedMovies', 'completedAnimes', 'completedActivities'];
+    const categoryNames = ['📚 読書', '🎬 映画', '📺 アニメ', '🎯 活動'];
     
     return categories.map((category, index) => {
       const thisValue = thisMonth[category] || 0;
       const lastValue = lastMonth[category] || 0;
-      const change = statsUtil.getChangeIndicator(thisValue, lastValue); // 🆕 StatsUtilityを使用
+      const change = statsUtil.getChangeIndicator(thisValue, lastValue);
       
       return `${categoryNames[index]}: ${thisValue}件 (${change})`;
     }).join('\n');
   },
 
-  // 🆕 来月予測生成
-  predictNextMonthTrend(twoMonthsAgo, lastMonth, thisMonth) {
+  // 🆕 アニメ対応来月予測生成
+  predictNextMonthTrendWithAnime(twoMonthsAgo, lastMonth, thisMonth) {
     const trends = [thisMonth, lastMonth, twoMonthsAgo].map(month => 
-      (month.finishedBooks || 0) + (month.watchedMovies || 0) + (month.completedActivities || 0)
+      (month.finishedBooks || 0) + (month.watchedMovies || 0) + 
+      (month.completedAnimes || 0) + (month.completedActivities || 0) // アニメ追加
     );
     
     const avgGrowth = ((trends[0] - trends[1]) + (trends[1] - trends[2])) / 2;
@@ -693,7 +805,51 @@ module.exports = {
     }
   },
 
-  // 既存のヘルパーメソッド（変更なし）
+  // 🆕 アニメ視聴ペース評価
+  evaluateAnimePace(monthlyAnimes) {
+    if (monthlyAnimes >= 6) {
+      return { icon: '🚀', level: '超高速ペース', comment: '月6本以上！驚異的な視聴量です！' };
+    } else if (monthlyAnimes >= 4) {
+      return { icon: '⚡', level: '高速ペース', comment: '月4本以上！素晴らしいペースです！' };
+    } else if (monthlyAnimes >= 2) {
+      return { icon: '📈', level: '標準ペース', comment: '月2本以上！良いペースを保っています！' };
+    } else if (monthlyAnimes >= 1) {
+      return { icon: '📺', level: '安定ペース', comment: '月1本！継続が大切です！' };
+    } else {
+      return { icon: '🌱', level: 'スタート', comment: 'まずは月1本完走を目指してみませんか？' };
+    }
+  },
+
+  // 🆕 アニメ視聴目標提案
+  suggestAnimeGoal(currentMonthly, wantToWatchCount) {
+    if (currentMonthly < 1) {
+      return '📺 まずは月1本の完走を目指してみましょう！';
+    } else if (currentMonthly < 2) {
+      return '📺 月2本完走を目指して、視聴習慣を強化しませんか？';
+    } else if (wantToWatchCount > 20) {
+      return '📺 観たいアニメが多いので、計画的に視聴していきましょう！';
+    } else if (currentMonthly >= 4) {
+      return '🏆 素晴らしいペース！このまま継続して年間50本を目指しませんか？';
+    } else {
+      return '⭐ 月3本完走にチャレンジしてみませんか？';
+    }
+  },
+
+  // 既存メソッド（変更なし）
+  generateWeeklyInsights(growth) {
+    const { monthlyGrowth } = growth;
+    
+    if (monthlyGrowth >= 20) {
+      return '🚀 **急成長中！** 素晴らしいペースです！この調子で継続しましょう！';
+    } else if (monthlyGrowth >= 10) {
+      return '📈 **順調な成長** が見られます。安定したペースを保っていますね！';
+    } else if (monthlyGrowth >= 0) {
+      return '➡️ **安定したペース** です。継続的な活動が素晴らしいですね！';
+    } else {
+      return '🔄 **調整期間** かもしれません。無理せず、自分のペースで続けましょう！';
+    }
+  },
+
   calculateWeeklyTrend() {
     return {
       description: '📈 活動量が増加傾向にあります\n最も活発: 月曜日\n最も静か: 日曜日'
@@ -746,12 +902,6 @@ module.exports = {
     };
   },
 
-  // StatsUtilityに移動したメソッドは削除（重複回避）
-  // - generateProgressBar → statsUtil.generateProgressBar
-  // - calculateBacklogRate → statsUtil.calculateBacklogRate
-  // - getChangeIndicator → statsUtil.getChangeIndicator
-
-  // 月次レベルを計算（既存のまま）
   calculateMonthlyLevel(totalCompleted) {
     if (totalCompleted >= 30) {
       return { icon: '🏆', name: '超人レベル', description: '驚異的な達成率です！' };
@@ -768,7 +918,6 @@ module.exports = {
     }
   },
 
-  // 読書ペースを評価（既存のまま）
   evaluateReadingPace(monthlyBooks) {
     if (monthlyBooks >= 8) {
       return { icon: '🚀', level: '超高速ペース', comment: '月8冊以上！驚異的な読書量です！' };
@@ -783,7 +932,6 @@ module.exports = {
     }
   },
 
-  // 読書目標を提案（既存のまま）
   suggestReadingGoal(currentMonthly, backlogCount) {
     if (currentMonthly < 1) {
       return '📋 まずは月1冊の読了を目指してみましょう！';
@@ -798,14 +946,12 @@ module.exports = {
     }
   },
 
-// プログレスバーを生成
   generateProgressBar(percentage, length = 10) {
     const filled = Math.round((percentage / 100) * length);
     const empty = length - filled;
     return '█'.repeat(filled) + '░'.repeat(empty) + ` ${percentage}%`;
   },
 
-  // 積読消化率を計算
   calculateBacklogRate(bookCounts) {
     const totalOwned = (bookCounts.wantToRead || 0) + bookCounts.finished;
     return totalOwned > 0 ? Math.round((bookCounts.finished / totalOwned) * 100) : 0;
