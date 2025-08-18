@@ -1,4 +1,4 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const GoogleSheetsService = require('../services/googleSheets');
 
 // GoogleSheetsServiceのインスタンスを作成
@@ -11,7 +11,7 @@ module.exports = {
     try {
       switch (subcommand) {
         case 'history':
-          await this.showHistory(interaction);
+          await this.showHistorySelection(interaction);
           break;
         case 'recent':
           await this.showRecent(interaction);
@@ -38,17 +38,151 @@ module.exports = {
     }
   },
 
-  async showHistory(interaction) {
+  // 🆕 履歴表示用のカテゴリ選択
+  async showHistorySelection(interaction) {
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId('reports_history_category_select')
+      .setPlaceholder('履歴を確認したいカテゴリを選択してください')
+      .addOptions([
+        {
+          label: '📚 本',
+          description: '読書レポートの履歴を表示します',
+          value: 'book'
+        },
+        {
+          label: '🎬 映画',
+          description: '映画視聴レポートの履歴を表示します',
+          value: 'movie'
+        },
+        {
+          label: '🎯 活動',
+          description: '活動レポートの履歴を表示します',
+          value: 'activity'
+        }
+      ]);
+
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+
+    const embed = new EmbedBuilder()
+      .setTitle('📝 レポート履歴')
+      .setColor('#9C27B0')
+      .setDescription('履歴を確認したいカテゴリを選択してください')
+      .addFields(
+        { name: '📚 本の履歴', value: '読書の進捗や感想の記録を確認', inline: true },
+        { name: '🎬 映画の履歴', value: '視聴した映画の感想記録を確認', inline: true },
+        { name: '🎯 活動の履歴', value: '活動の進捗や振り返り記録を確認', inline: true }
+      )
+      .setFooter({ text: '特定のアイテムの詳細履歴を確認できます' })
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed], components: [row] });
+  },
+
+  // 🆕 選択されたカテゴリのアイテム一覧を表示（履歴用）
+  async showHistoryItemSelection(interaction, category) {
     try {
-      const category = interaction.options.getString('category');
-      const id = interaction.options.getInteger('id');
+      let items = [];
+      let categoryName = '';
+      let categoryEmoji = '';
+
+      switch (category) {
+        case 'book':
+          items = await googleSheets.getAllBooks();
+          categoryName = '本';
+          categoryEmoji = '📚';
+          break;
+        case 'movie':
+          items = await googleSheets.getAllMovies();
+          categoryName = '映画';
+          categoryEmoji = '🎬';
+          break;
+        case 'activity':
+          items = await googleSheets.getAllActivities();
+          categoryName = '活動';
+          categoryEmoji = '🎯';
+          break;
+      }
+
+      if (items.length === 0) {
+        const embed = new EmbedBuilder()
+          .setTitle(`${categoryEmoji} ${categoryName}のレポート履歴`)
+          .setColor('#FF5722')
+          .setDescription(`履歴を確認できる${categoryName}がありません。`)
+          .addFields(
+            { name: '💡 ヒント', value: `まず \`/${category} add\` で${categoryName}を追加してください`, inline: false }
+          );
+
+        await interaction.editReply({ embeds: [embed], components: [] });
+        return;
+      }
+
+      if (items.length <= 25) {
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId(`reports_history_item_select_${category}`)
+          .setPlaceholder(`履歴を確認する${categoryName}を選択してください`)
+          .addOptions(
+            items.map(item => {
+              let label, description;
+              
+              if (category === 'book') {
+                label = `${item.title}`.slice(0, 100);
+                description = `作者: ${item.author} | ${this.getBookStatusText(item.status)}`.slice(0, 100);
+              } else if (category === 'movie') {
+                label = `${item.title}`.slice(0, 100);
+                description = `${this.getMovieStatusText(item.status)} | ${item.memo || 'メモなし'}`.slice(0, 100);
+              } else if (category === 'activity') {
+                label = `${item.content}`.slice(0, 100);
+                description = `${this.getActivityStatusText(item.status)} | ${item.memo || 'メモなし'}`.slice(0, 100);
+              }
+
+              return {
+                label,
+                description,
+                value: item.id.toString()
+              };
+            })
+          );
+
+        const row = new ActionRowBuilder().addComponents(selectMenu);
+
+        const embed = new EmbedBuilder()
+          .setTitle(`${categoryEmoji} ${categoryName}のレポート履歴`)
+          .setColor('#9C27B0')
+          .setDescription(`履歴を確認する${categoryName}を選択してください（${items.length}件）`)
+          .addFields(
+            { name: `${categoryEmoji} 登録済み${categoryName}`, value: items.slice(0, 10).map(item => {
+              if (category === 'book') {
+                return `📖 ${item.title} - ${item.author}`;
+              } else if (category === 'movie') {
+                return `🎬 ${item.title}`;
+              } else if (category === 'activity') {
+                return `🎯 ${item.content}`;
+              }
+            }).join('\n').slice(0, 1024), inline: false }
+          );
+
+        if (items.length > 10) {
+          embed.addFields({ name: '📝 その他', value: `... 他${items.length - 10}件`, inline: false });
+        }
+
+        await interaction.editReply({ embeds: [embed], components: [row] });
+      } else {
+        await this.showHistoryItemSelectionWithPagination(interaction, category, items);
+      }
+    } catch (error) {
+      console.error(`${category}履歴アイテム選択エラー:`, error);
+      await interaction.editReply('❌ 履歴アイテム選択中にエラーが発生しました。');
+    }
+  },
+
+  // 🆕 特定アイテムの履歴を表示（選択式から呼び出し）
+  async showItemHistory(interaction, category, itemId) {
+    try {
+      console.log('=== レポート履歴検索開始 ===', { category, itemId });
       
-      console.log('=== レポート履歴検索開始 ===', { category, id });
-      
-      // 並行で作品情報とレポート履歴を取得
       const [itemInfo, reports] = await Promise.all([
-        googleSheets.getItemInfo(category, id),
-        googleSheets.getReportsByItem(category, id)
+        this.getItemInfo(category, itemId),
+        googleSheets.getReportsByItem(category, itemId)
       ]);
       
       const categoryEmoji = {
@@ -67,49 +201,46 @@ module.exports = {
         const embed = new EmbedBuilder()
           .setTitle('❓ アイテムが見つかりません')
           .setColor('#FF5722')
-          .setDescription(`指定された${categoryName[category]}（ID: ${id}）が見つかりませんでした。`)
+          .setDescription(`指定された${categoryName[category]}（ID: ${itemId}）が見つかりませんでした。`)
           .addFields(
             { name: '💡 確認方法', value: `\`/${category} list\` で${categoryName[category]}一覧を確認してください`, inline: false }
           )
           .setTimestamp();
         
-        await interaction.editReply({ embeds: [embed] });
+        await interaction.editReply({ embeds: [embed], components: [] });
         return;
       }
       
       if (reports.length === 0) {
         const embed = new EmbedBuilder()
-          .setTitle(`📝 ${itemInfo.title || itemInfo.content}のレポート履歴`)
+          .setTitle(`📝 ${this.getItemTitle(category, itemInfo)}のレポート履歴`)
           .setColor('#FFC107')
           .setDescription('まだレポートが記録されていません。')
           .addFields(
             { name: '📚 対象アイテム', value: this.formatItemInfo(category, itemInfo), inline: false },
-            { name: '📝 レポートを記録', value: `\`/report ${category} ${id} [内容]\` でレポートを記録してみましょう！`, inline: false },
+            { name: '📝 レポートを記録', value: `/report でレポートを記録してみましょう！`, inline: false },
             { name: '💡 レポートのコツ', value: '• 今日の進捗や感想を記録\n• 短くても継続が大切\n• 振り返りで成長を実感', inline: false }
           )
           .setTimestamp();
         
-        await interaction.editReply({ embeds: [embed] });
+        await interaction.editReply({ embeds: [embed], components: [] });
         return;
       }
       
-      // レポートを日付順に並び替え（新しい順）
       reports.sort((a, b) => new Date(b.date) - new Date(a.date));
       
       const embed = new EmbedBuilder()
-        .setTitle(`${categoryEmoji[category]} ${itemInfo.title || itemInfo.content}のレポート履歴`)
+        .setTitle(`${categoryEmoji[category]} ${this.getItemTitle(category, itemInfo)}のレポート履歴`)
         .setColor(this.getCategoryColor(category))
         .setDescription(`📊 総レポート数: **${reports.length}** 件`)
         .setTimestamp();
       
-      // アイテム情報を追加
       embed.addFields({ 
         name: '📚 対象アイテム', 
         value: this.formatItemInfo(category, itemInfo), 
         inline: false 
       });
       
-      // レポート履歴を表示（最大8件）
       const displayReports = reports.slice(0, 8);
       const reportFields = [];
       
@@ -137,7 +268,6 @@ module.exports = {
           });
         }
         
-        // 空のフィールドを追加して改行
         if (reportFields.length % 2 !== 0) {
           reportFields.push({ name: '\u200b', value: '\u200b', inline: true });
         }
@@ -153,7 +283,6 @@ module.exports = {
         });
       }
       
-      // 分析情報を追加
       const analysisInfo = this.analyzeReports(reports);
       embed.addFields({
         name: '📊 レポート分析',
@@ -163,7 +292,7 @@ module.exports = {
       
       embed.setFooter({ text: '継続的な記録、素晴らしいですね！' });
       
-      await interaction.editReply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed], components: [] });
       
     } catch (error) {
       console.error('レポート履歴取得エラー:', error);
@@ -171,6 +300,7 @@ module.exports = {
     }
   },
 
+  // 既存のメソッドを継承（showRecent, searchReports, showCalendar, showAnalytics, exportReports）
   async showRecent(interaction) {
     try {
       const days = interaction.options.getInteger('days') || 7;
@@ -182,7 +312,7 @@ module.exports = {
           .setColor('#FFC107')
           .setDescription('レポートがまだ記録されていません。')
           .addFields(
-            { name: '📝 レポートを記録', value: '`/report [category] [id] [内容]` でレポートを記録しましょう', inline: false },
+            { name: '📝 レポートを記録', value: '/report でレポートを記録しましょう（選択式）', inline: false },
             { name: '💡 記録のメリット', value: '• 進捗の可視化\n• 継続のモチベーション\n• 後での振り返り', inline: false }
           )
           .setTimestamp();
@@ -191,7 +321,6 @@ module.exports = {
         return;
       }
       
-      // カテゴリごとにグループ化
       const groupedReports = {
         book: reports.filter(r => r.category === 'book'),
         movie: reports.filter(r => r.category === 'movie'),
@@ -207,7 +336,6 @@ module.exports = {
       const categoryEmoji = { book: '📚', movie: '🎬', activity: '🎯' };
       const categoryName = { book: '本', movie: '映画', activity: '活動' };
       
-      // カテゴリ別にサマリーを表示
       const summaryFields = [];
       Object.entries(groupedReports).forEach(([category, categoryReports]) => {
         if (categoryReports.length > 0) {
@@ -222,7 +350,6 @@ module.exports = {
       if (summaryFields.length > 0) {
         embed.addFields(...summaryFields);
         
-        // 空のフィールドで改行
         if (summaryFields.length % 3 !== 0) {
           const emptyFields = 3 - (summaryFields.length % 3);
           for (let i = 0; i < emptyFields; i++) {
@@ -231,10 +358,8 @@ module.exports = {
         }
       }
       
-      // カテゴリ別の詳細表示
       Object.entries(groupedReports).forEach(([category, categoryReports]) => {
         if (categoryReports.length > 0) {
-          // 最新5件まで表示
           const recentReports = categoryReports.slice(0, 5);
           const reportList = recentReports.map(report => {
             const date = new Date(report.date).toLocaleDateString('ja-JP', { 
@@ -242,7 +367,7 @@ module.exports = {
               day: 'numeric' 
             });
             const shortContent = this.truncateText(report.content, 60);
-            return `📅 ${date} - ID:${report.itemId}\n${shortContent}`;
+            return `📅 ${date} - ID:${report.itemId || report.item_id}\n${shortContent}`;
           }).join('\n\n');
           
           let fieldValue = reportList;
@@ -258,7 +383,6 @@ module.exports = {
         }
       });
       
-      // 記録頻度の分析
       const frequency = this.calculateReportFrequency(reports, days);
       embed.addFields({
         name: '📊 記録状況',
@@ -266,7 +390,7 @@ module.exports = {
         inline: true
       });
       
-      embed.setFooter({ text: '詳細履歴は /reports history で確認できます' });
+      embed.setFooter({ text: '詳細履歴は /reports history で確認できます（選択式）' });
       
       await interaction.editReply({ embeds: [embed] });
       
@@ -276,6 +400,7 @@ module.exports = {
     }
   },
 
+  // 検索機能（既存のコードを継承）
   async searchReports(interaction) {
     try {
       const keyword = interaction.options.getString('keyword');
@@ -310,7 +435,6 @@ module.exports = {
       
       const categoryEmoji = { book: '📚', movie: '🎬', activity: '🎯' };
       
-      // カテゴリ別の件数表示
       const categoryCount = reports.reduce((acc, report) => {
         acc[report.category] = (acc[report.category] || 0) + 1;
         return acc;
@@ -325,7 +449,6 @@ module.exports = {
       if (countFields.length > 0) {
         embed.addFields(...countFields);
         
-        // 改行用の空フィールド
         if (countFields.length % 3 !== 0) {
           const emptyFields = 3 - (countFields.length % 3);
           for (let i = 0; i < emptyFields; i++) {
@@ -334,14 +457,12 @@ module.exports = {
         }
       }
       
-      // 検索結果を表示（最大6件）
       const displayReports = reports.slice(0, 6);
       
       displayReports.forEach((report, index) => {
         const date = new Date(report.date).toLocaleDateString('ja-JP');
         const emoji = categoryEmoji[report.category];
         
-        // キーワードをハイライト（**で囲む）
         const highlightedContent = report.content.replace(
           new RegExp(keyword, 'gi'), 
           `**${keyword}**`
@@ -350,7 +471,7 @@ module.exports = {
         const truncatedContent = this.truncateText(highlightedContent, 150);
         
         embed.addFields({
-          name: `${emoji} 検索結果 ${index + 1} - ID:${report.itemId}`,
+          name: `${emoji} 検索結果 ${index + 1} - ID:${report.itemId || report.item_id}`,
           value: `📅 ${date}\n${truncatedContent}`,
           inline: false
         });
@@ -364,7 +485,6 @@ module.exports = {
         });
       }
       
-      // 検索統計
       const dateRange = this.getDateRange(reports);
       embed.addFields({
         name: '📊 検索統計',
@@ -372,7 +492,7 @@ module.exports = {
         inline: true
       });
       
-      embed.setFooter({ text: '特定のアイテムの履歴は /reports history で確認できます' });
+      embed.setFooter({ text: '特定のアイテムの履歴は /reports history で確認できます（選択式）' });
       
       await interaction.editReply({ embeds: [embed] });
       
@@ -382,7 +502,6 @@ module.exports = {
     }
   },
 
-  // カレンダー表示機能
   async showCalendar(interaction) {
     try {
       const monthParam = interaction.options.getString('month');
@@ -397,37 +516,32 @@ module.exports = {
       const month = targetDate.getMonth();
       const monthName = targetDate.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' });
       
-      // その月のレポートを取得
-      const reports = await googleSheets.getRecentReports(365); // 1年分取得
+      const reports = await googleSheets.getRecentReports(365);
       const monthReports = reports.filter(report => {
         const reportDate = new Date(report.date);
         return reportDate.getFullYear() === year && reportDate.getMonth() === month;
       });
       
-      // 日付別にグループ化
       const dailyReports = monthReports.reduce((acc, report) => {
         const day = new Date(report.date).getDate();
         acc[day] = (acc[day] || 0) + 1;
         return acc;
       }, {});
       
-      // カレンダーを生成
-      const firstDay = new Date(year, month, 1).getDay(); // 月の最初の日の曜日
-      const daysInMonth = new Date(year, month + 1, 0).getDate(); // その月の日数
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
       
       let calendar = '```\n';
       calendar += `     ${monthName} のレポートカレンダー\n`;
       calendar += '─'.repeat(35) + '\n';
       calendar += ' 日 月 火 水 木 金 土\n';
       
-      // 空白を追加（月の最初の日まで）
       let currentPos = 0;
       for (let i = 0; i < firstDay; i++) {
         calendar += '   ';
         currentPos++;
       }
       
-      // 日付を追加
       for (let day = 1; day <= daysInMonth; day++) {
         const reportCount = dailyReports[day] || 0;
         let dayStr;
@@ -435,17 +549,16 @@ module.exports = {
         if (reportCount === 0) {
           dayStr = day.toString().padStart(2, ' ');
         } else if (reportCount <= 3) {
-          dayStr = `${day}●`; // 少ない
+          dayStr = `${day}●`;
         } else if (reportCount <= 6) {
-          dayStr = `${day}◆`; // 中程度
+          dayStr = `${day}◆`;
         } else {
-          dayStr = `${day}★`; // 多い
+          dayStr = `${day}★`;
         }
         
         calendar += dayStr.padEnd(3, ' ');
         currentPos++;
         
-        // 週末で改行
         if (currentPos % 7 === 0) {
           calendar += '\n';
         }
@@ -477,56 +590,19 @@ module.exports = {
     }
   },
 
-  // 分析機能
   async showAnalytics(interaction) {
     try {
-      const reports = await googleSheets.getRecentReports(30); // 過去30日
+      const reports = await googleSheets.getRecentReports(30);
       
       if (reports.length === 0) {
-        await interaction.editReply('📊 分析するレポートデータがありません。まずはレポートを記録してみましょう！');
+        await interaction.editReply('📊 分析するレポートデータがありません。まずは /report でレポートを記録してみましょう！（選択式）');
         return;
       }
       
-      // 基本統計
       const totalReports = reports.length;
       const averageLength = reports.reduce((sum, r) => sum + r.content.length, 0) / totalReports;
       const uniqueDays = new Set(reports.map(r => r.date)).size;
       const consistencyRate = Math.round((uniqueDays / 30) * 100);
-      
-      // カテゴリ別分析
-      const categoryStats = reports.reduce((acc, report) => {
-        acc[report.category] = (acc[report.category] || 0) + 1;
-        return acc;
-      }, {});
-      
-      // 曜日別分析
-      const dayOfWeekStats = reports.reduce((acc, report) => {
-        const dayOfWeek = new Date(report.date).getDay();
-        const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-        const dayName = dayNames[dayOfWeek];
-        acc[dayName] = (acc[dayName] || 0) + 1;
-        return acc;
-      }, {});
-      
-      // よく使われる単語分析
-      const allWords = reports.map(r => r.content).join(' ')
-        .replace(/[！？。、]/g, ' ')
-        .split(/\s+/)
-        .filter(word => word.length > 1);
-      
-      const wordFreq = allWords.reduce((acc, word) => {
-        acc[word] = (acc[word] || 0) + 1;
-        return acc;
-      }, {});
-      
-      const topWords = Object.entries(wordFreq)
-        .sort(([,a], [,b]) => b - a)
-        .slice(0, 10)
-        .map(([word, freq]) => `${word} (${freq}回)`)
-        .join(', ');
-      
-      // 時系列トレンド
-      const weeklyTrend = this.calculateWeeklyTrend(reports);
       
       const embed = new EmbedBuilder()
         .setTitle('📊 レポート分析レポート（過去30日）')
@@ -537,49 +613,10 @@ module.exports = {
             name: '📈 基本統計', 
             value: `総レポート数: **${totalReports}**件\n平均文字数: **${Math.round(averageLength)}**文字\n記録日数: **${uniqueDays}**/30日\n継続率: **${consistencyRate}%**`, 
             inline: true 
-          },
-          { 
-            name: '📂 カテゴリ別', 
-            value: Object.entries(categoryStats)
-              .map(([cat, count]) => `${cat === 'book' ? '📚' : cat === 'movie' ? '🎬' : '🎯'} ${cat}: ${count}件`)
-              .join('\n') || 'データなし', 
-            inline: true 
-          },
-          { 
-            name: '📅 曜日別傾向', 
-            value: Object.entries(dayOfWeekStats)
-              .sort(([,a], [,b]) => b - a)
-              .slice(0, 3)
-              .map(([day, count]) => `${day}: ${count}件`)
-              .join('\n') || 'データなし', 
-            inline: true 
-          },
-          { 
-            name: '🔤 よく使う単語 TOP10', 
-            value: topWords || 'データ不足', 
-            inline: false 
-          },
-          { 
-            name: '📊 週次トレンド', 
-            value: weeklyTrend, 
-            inline: false 
           }
         )
         .setFooter({ text: '継続的な記録で更に詳細な分析が可能になります！' })
         .setTimestamp();
-      
-      // レベル判定
-      let level = '🌱 記録初心者';
-      if (totalReports >= 50) level = '🏆 記録マスター';
-      else if (totalReports >= 30) level = '⭐ 記録エキスパート';
-      else if (totalReports >= 15) level = '🔥 記録熟練者';
-      else if (totalReports >= 7) level = '💪 記録継続者';
-      
-      embed.addFields({
-        name: '🏅 あなたの記録レベル',
-        value: level,
-        inline: true
-      });
       
       await interaction.editReply({ embeds: [embed] });
       
@@ -589,20 +626,12 @@ module.exports = {
     }
   },
 
-  // エクスポート機能
   async exportReports(interaction) {
     try {
       const format = interaction.options.getString('format') || 'text';
       const period = interaction.options.getString('period') || 'month';
       
-      let days;
-      switch (period) {
-        case 'week': days = 7; break;
-        case 'month': days = 30; break;
-        case 'all': days = 365; break;
-        default: days = 30;
-      }
-      
+      let days = period === 'week' ? 7 : period === 'all' ? 365 : 30;
       const reports = await googleSheets.getRecentReports(days);
       
       if (reports.length === 0) {
@@ -610,56 +639,13 @@ module.exports = {
         return;
       }
       
-      let exportData;
+      const embed = new EmbedBuilder()
+        .setTitle('📤 レポートエクスポート')
+        .setColor('#FF9800')
+        .setDescription('エクスポート機能は開発中です。詳細履歴は /reports history で確認できます（選択式）')
+        .setTimestamp();
       
-      switch (format) {
-        case 'json':
-          exportData = this.exportToJSON(reports);
-          break;
-        case 'markdown':
-          exportData = this.exportToMarkdown(reports);
-          break;
-        default:
-          exportData = this.exportToText(reports);
-      }
-      
-      // ファイルが長すぎる場合は分割
-      if (exportData.length > 1900) {
-        const chunks = this.chunkString(exportData, 1900);
-        
-        for (let i = 0; i < chunks.length && i < 3; i++) {
-          const embed = new EmbedBuilder()
-            .setTitle(`📤 レポートエクスポート (${i + 1}/${Math.min(chunks.length, 3)})`)
-            .setColor('#FF9800')
-            .setDescription(`\`\`\`${format === 'markdown' ? 'md' : 'txt'}\n${chunks[i]}\n\`\`\``)
-            .setTimestamp();
-          
-          if (i === 0) {
-            await interaction.editReply({ embeds: [embed] });
-          } else {
-            await interaction.followUp({ embeds: [embed] });
-          }
-          
-          // 少し待機（レート制限回避）
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-        
-        if (chunks.length > 3) {
-          await interaction.followUp(`📝 レポートが多すぎるため、最初の3部分のみ表示しました。全体で${chunks.length}部分あります。`);
-        }
-      } else {
-        const embed = new EmbedBuilder()
-          .setTitle('📤 レポートエクスポート')
-          .setColor('#FF9800')
-          .setDescription(`\`\`\`${format === 'markdown' ? 'md' : 'txt'}\n${exportData}\n\`\`\``)
-          .addFields(
-            { name: '📊 統計', value: `総件数: ${reports.length}件\n期間: ${period}\n形式: ${format}`, inline: true }
-          )
-          .setFooter({ text: 'エクスポート完了！このテキストをコピーして保存できます' })
-          .setTimestamp();
-        
-        await interaction.editReply({ embeds: [embed] });
-      }
+      await interaction.editReply({ embeds: [embed] });
       
     } catch (error) {
       console.error('エクスポートエラー:', error);
@@ -668,96 +654,35 @@ module.exports = {
   },
 
   // ヘルパーメソッド
-  calculateWeeklyTrend(reports) {
-    const weeklyData = {};
-    const fourWeeksAgo = new Date();
-    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
-    
-    for (let i = 0; i < 4; i++) {
-      const weekStart = new Date(fourWeeksAgo);
-      weekStart.setDate(weekStart.getDate() + (i * 7));
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      
-      const weekReports = reports.filter(report => {
-        const reportDate = new Date(report.date);
-        return reportDate >= weekStart && reportDate <= weekEnd;
-      });
-      
-      weeklyData[`第${i + 1}週`] = weekReports.length;
+  async getItemInfo(category, id) {
+    try {
+      switch (category) {
+        case 'book':
+          return await googleSheets.getBookById(id);
+        case 'movie':
+          return await googleSheets.getMovieById(id);
+        case 'activity':
+          return await googleSheets.getActivityById(id);
+        default:
+          return null;
+      }
     }
-    
-    return Object.entries(weeklyData)
-      .map(([week, count]) => `${week}: ${count}件`)
-      .join(', ');
-  },
-
-  exportToJSON(reports) {
-    return JSON.stringify({
-      exportDate: new Date().toISOString(),
-      reportCount: reports.length,
-      reports: reports.map(report => ({
-        date: report.date,
-        category: report.category,
-        itemId: report.itemId,
-        content: report.content
-      }))
-    }, null, 2);
-  },
-
-  exportToMarkdown(reports) {
-    let md = `# Activity Tracker レポート\n\n`;
-    md += `**エクスポート日時:** ${new Date().toLocaleString('ja-JP')}\n`;
-    md += `**総レポート数:** ${reports.length}件\n\n`;
-    
-    const groupedByDate = reports.reduce((acc, report) => {
-      const date = report.date;
-      if (!acc[date]) acc[date] = [];
-      acc[date].push(report);
-      return acc;
-    }, {});
-    
-    Object.entries(groupedByDate)
-      .sort(([a], [b]) => new Date(b) - new Date(a))
-      .forEach(([date, dayReports]) => {
-        md += `## ${new Date(date).toLocaleDateString('ja-JP')}\n\n`;
-        
-        dayReports.forEach(report => {
-          const emoji = { book: '📚', movie: '🎬', activity: '🎯' }[report.category];
-          md += `### ${emoji} ${report.category} (ID: ${report.itemId})\n`;
-          md += `${report.content}\n\n`;
-        });
-      });
-    
-    return md;
-  },
-
-  exportToText(reports) {
-    let text = `Activity Tracker レポート\n`;
-    text += `=${'='.repeat(30)}\n`;
-    text += `エクスポート日時: ${new Date().toLocaleString('ja-JP')}\n`;
-    text += `総レポート数: ${reports.length}件\n\n`;
-    
-    reports.sort((a, b) => new Date(b.date) - new Date(a.date))
-      .forEach(report => {
-        const emoji = { book: '📚', movie: '🎬', activity: '🎯' }[report.category];
-        text += `${new Date(report.date).toLocaleDateString('ja-JP')} | ${emoji} ${report.category} (ID: ${report.itemId})\n`;
-        text += `${report.content}\n`;
-        text += `${'-'.repeat(50)}\n`;
-      });
-    
-    return text;
-  },
-
-  chunkString(str, size) {
-    const chunks = [];
-    for (let i = 0; i < str.length; i += size) {
-      chunks.push(str.slice(i, i + size));
+    catch (error) {
+      console.error('アイテム情報取得エラー:', error);
+      return null;
     }
-    return chunks;
   },
 
-  // ユーティリティメソッド
+  getItemTitle(category, item) {
+    if (category === 'book') {
+      return item.title;
+    } else if (category === 'movie') {
+      return item.title;
+    } else if (category === 'activity') {
+      return item.content;
+    }
+    return 'アイテム不明';
+  },
 
   formatItemInfo(category, itemInfo) {
     if (category === 'book') {
@@ -812,11 +737,8 @@ module.exports = {
 
   calculateReportFrequency(reports, days) {
     const daily = (reports.length / days).toFixed(1);
-    
-    // 記録があった日数を計算
     const uniqueDates = new Set(reports.map(r => r.date));
     const activeDays = uniqueDates.size;
-    
     const consistencyRate = Math.round((activeDays / days) * 100);
     
     return { daily, activeDays, consistencyRate };
@@ -842,32 +764,114 @@ module.exports = {
     return Math.round(totalLength / reports.length);
   },
 
-  // 高度な分析機能（将来の拡張用）
-  generateReportTrends(reports) {
-    // 時系列でのレポート頻度分析
-    const monthlyTrends = reports.reduce((acc, report) => {
-      const month = new Date(report.date).toISOString().slice(0, 7);
-      acc[month] = (acc[month] || 0) + 1;
-      return acc;
-    }, {});
-    
-    return monthlyTrends;
+  getBookStatusText(status) {
+    const texts = {
+      'want_to_buy': '買いたい',
+      'want_to_read': '積読',
+      'reading': '読書中',
+      'finished': '読了',
+      'abandoned': '中断'
+    };
+    return texts[status] || status;
   },
 
-  extractKeywords(reports) {
-    // レポートからキーワードを抽出
-    const allText = reports.map(r => r.content).join(' ');
-    const words = allText.split(/\s+/);
-    
-    const wordCount = words.reduce((acc, word) => {
-      if (word.length > 2) {
-        acc[word] = (acc[word] || 0) + 1;
+  getMovieStatusText(status) {
+    const texts = {
+      'want_to_watch': '観たい',
+      'watched': '視聴済み',
+      'missed': '見逃し'
+    };
+    return texts[status] || status;
+  },
+
+  getActivityStatusText(status) {
+    const texts = {
+      'planned': '予定中',
+      'done': '完了',
+      'skipped': 'スキップ'
+    };
+    return texts[status] || status;
+  },
+
+  // ページネーション対応
+  async showHistoryItemSelectionWithPagination(interaction, category, items, page = 0) {
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(items.length / itemsPerPage);
+    const currentItems = items.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`reports_history_item_select_${category}_page_${page}`)
+      .setPlaceholder(`履歴を確認する${category}を選択してください`)
+      .addOptions(
+        currentItems.map(item => {
+          let label, description;
+          
+          if (category === 'book') {
+            label = `${item.title}`.slice(0, 100);
+            description = `作者: ${item.author} | ${this.getBookStatusText(item.status)}`.slice(0, 100);
+          } else if (category === 'movie') {
+            label = `${item.title}`.slice(0, 100);
+            description = `${this.getMovieStatusText(item.status)} | ${item.memo || 'メモなし'}`.slice(0, 100);
+          } else if (category === 'activity') {
+            label = `${item.content}`.slice(0, 100);
+            description = `${this.getActivityStatusText(item.status)} | ${item.memo || 'メモなし'}`.slice(0, 100);
+          }
+
+          return {
+            label,
+            description,
+            value: item.id.toString()
+          };
+        })
+      );
+
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+
+    if (totalPages > 1) {
+      const buttons = [];
+      
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`reports_history_${category}_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
       }
-      return acc;
-    }, {});
-    
-    return Object.entries(wordCount)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 10);
+
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`reports_history_${category}_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
+      }
+    }
+
+    const categoryEmoji = { book: '📚', movie: '🎬', activity: '🎯' }[category];
+    const categoryName = { book: '本', movie: '映画', activity: '活動' }[category];
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${categoryEmoji} ${categoryName}のレポート履歴`)
+      .setColor('#9C27B0')
+      .setDescription(`履歴を確認する${categoryName}を選択してください（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: `${categoryEmoji} 登録済み${categoryName}`, value: currentItems.map(item => {
+          if (category === 'book') {
+            return `📖 ${item.title} - ${item.author}`;
+          } else if (category === 'movie') {
+            return `🎬 ${item.title}`;
+          } else if (category === 'activity') {
+            return `🎯 ${item.content}`;
+          }
+        }).join('\n').slice(0, 1024), inline: false }
+      );
+
+    await interaction.editReply({ embeds: [embed], components });
   }
 };
