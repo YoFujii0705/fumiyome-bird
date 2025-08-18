@@ -1,28 +1,13 @@
 const { SlashCommandBuilder } = require('discord.js');
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('reports')
     .setDescription('📝 レポート履歴の管理 - 記録した日報の検索・閲覧')
+    // 🆕 history サブコマンドを選択式に変更
     .addSubcommand(subcommand =>
       subcommand
         .setName('history')
-        .setDescription('📜 特定アイテムのレポート履歴を表示')
-        .addStringOption(option =>
-          option
-            .setName('category')
-            .setDescription('カテゴリ')
-            .setRequired(true)
-            .addChoices(
-              { name: '📚 本', value: 'book' },
-              { name: '🎬 映画', value: 'movie' },
-              { name: '🎯 活動', value: 'activity' }
-            ))
-        .addIntegerOption(option =>
-          option
-            .setName('id')
-            .setDescription('対象アイテムのID')
-            .setRequired(true)))
+        .setDescription('📜 特定アイテムのレポート履歴を表示（選択式）'))
     
     .addSubcommand(subcommand =>
       subcommand
@@ -83,30 +68,29 @@ module.exports = {
               { name: '今月', value: 'month' },
               { name: '全期間', value: 'all' }
             ))),
-
+  
   // コマンドの実行処理（ハンドラーに委譲）
   async execute(interaction) {
     throw new Error('このコマンドはハンドラーで処理されます');
   },
-
-  // コマンドのメタデータ
+  
+  // メタデータ
   category: 'tracking',
   permissions: [],
   cooldown: 3,
   
-  // 使用例
+  // 🆕 更新された使用例
   examples: [
-    '/reports history category:本 id:1',
+    '/reports history （選択式でカテゴリ→アイテム選択）',
     '/reports recent days:14',
     '/reports search keyword:感想'
   ],
-
-  // ヘルプテキスト
+  
   help: {
     description: 'これまでに記録した日報・レポートの検索、閲覧機能です。活動の振り返りをサポートします。',
     usage: '以下のレポート管理機能が利用できます：',
     subcommands: {
-      history: '特定の本・映画・活動に関するすべてのレポート履歴を時系列で表示',
+      history: '特定の本・映画・活動に関するすべてのレポート履歴を時系列で表示（選択式）',
       recent: '指定した日数以内に記録されたレポートを一覧表示',
       search: 'レポート内容からキーワード検索し、関連する記録を抽出'
     },
