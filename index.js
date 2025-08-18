@@ -120,10 +120,18 @@ client.on('interactionCreate', async interaction => {
       else if (interaction.customId.startsWith('movie_')) {
         await handleMovieSelection(interaction);
       }
-      // 将来的に活動も追加
-      // else if (interaction.customId.startsWith('activity_')) {
-      //   await handleActivitySelection(interaction);
-      // }
+      // 🆕 活動関連の選択メニュー処理
+      else if (interaction.customId.startsWith('activity_')) {
+        await handleActivitySelection(interaction);
+      }
+      // 🆕 レポート関連の選択メニュー処理
+      else if (interaction.customId.startsWith('report_')) {
+        await handleReportSelection(interaction);
+      }
+      // 🆕 レポート履歴関連の選択メニュー処理
+      else if (interaction.customId.startsWith('reports_')) {
+        await handleReportsSelection(interaction);
+      }
       
     } catch (error) {
       console.error('選択メニュー処理エラー:', error);
@@ -146,6 +154,14 @@ client.on('interactionCreate', async interaction => {
       // 映画のページネーション処理
       else if (interaction.customId.startsWith('movie_')) {
         await handleMoviePagination(interaction);
+      }
+      // 🆕 活動のページネーション処理
+      else if (interaction.customId.startsWith('activity_')) {
+        await handleActivityPagination(interaction);
+      }
+      // 🆕 レポート・レポート履歴のページネーション処理
+      else if (interaction.customId.startsWith('report_') || interaction.customId.startsWith('reports_')) {
+        await handleReportPagination(interaction);
       }
       
     } catch (error) {
@@ -552,6 +568,188 @@ async function handleMovieSelection(interaction) {
   }
 }
 
+// 🆕 活動の選択メニュー処理
+async function handleActivitySelection(interaction) {
+  const selectedActivityId = interaction.values[0];
+  const customId = interaction.customId;
+  
+  console.log(`🎯 活動選択処理: ${customId}, ID: ${selectedActivityId}`);
+  
+  if (customId.startsWith('activity_done_select')) {
+    // 活動を完了に変更
+    const doneActivity = await googleSheets.doneActivity(selectedActivityId);
+    
+    if (doneActivity) {
+      const congratsMessages = [
+        '継続は力なり！次の活動も頑張りましょう！',
+        'お疲れ様でした！着実に前進していますね！',
+        '素晴らしい成果です！この調子で行きましょう！',
+        '目標達成おめでとうございます！次はどんな挑戦をしますか？',
+        '努力が実を結びましたね！次のステップも楽しみです！'
+      ];
+      
+      const randomMessage = congratsMessages[Math.floor(Math.random() * congratsMessages.length)];
+      
+      const embed = new EmbedBuilder()
+        .setTitle('🎉 活動完了！')
+        .setColor('#4CAF50')
+        .setDescription(randomMessage + ' 🎉✨')
+        .addFields(
+          { name: 'ID', value: doneActivity.id.toString(), inline: true },
+          { name: '活動内容', value: doneActivity.content, inline: true },
+          { name: 'ステータス変更', value: '🎯 予定 → ✅ 完了', inline: true }
+        )
+        .setFooter({ text: '感想を /report で記録してみませんか？（選択式）' })
+        .setTimestamp();
+      
+      if (doneActivity.memo) {
+        embed.addFields({ name: '備考', value: doneActivity.memo, inline: false });
+      }
+      
+      await interaction.editReply({ embeds: [embed], components: [] });
+    } else {
+      await interaction.editReply({ 
+        content: '❌ 指定された活動が見つからないか、既に完了済みです。', 
+        components: [] 
+      });
+    }
+  }
+  
+  else if (customId.startsWith('activity_skip_select')) {
+    // 活動をスキップ
+    const skippedActivity = await googleSheets.skipActivity(selectedActivityId);
+    
+    if (skippedActivity) {
+      const embed = new EmbedBuilder()
+        .setTitle('😅 活動をスキップしました')
+        .setColor('#FF9800')
+        .setDescription('大丈夫です！時には見送ることも必要ですね。また機会があればチャレンジしてみてください！')
+        .addFields(
+          { name: 'ID', value: skippedActivity.id.toString(), inline: true },
+          { name: '活動内容', value: skippedActivity.content, inline: true },
+          { name: 'ステータス変更', value: '🎯 予定 → 😅 スキップ', inline: true }
+        )
+        .setFooter({ text: '新しい活動を追加して再チャレンジしてみましょう！' })
+        .setTimestamp();
+      
+      if (skippedActivity.memo) {
+        embed.addFields({ name: '備考', value: skippedActivity.memo, inline: false });
+      }
+      
+      await interaction.editReply({ embeds: [embed], components: [] });
+    } else {
+      await interaction.editReply({ 
+        content: '❌ 指定された活動が見つからないか、既に処理済みです。', 
+        components: [] 
+      });
+    }
+  }
+  
+  else if (customId.startsWith('activity_info_select')) {
+    // 活動の詳細情報を表示
+    const activityInfo = await googleSheets.getActivityById(selectedActivityId);
+    
+    if (activityInfo) {
+      const statusText = {
+        'planned': '🎯 予定中',
+        'done': '✅ 完了',
+        'skipped': '😅 スキップ'
+      };
+      
+      const embed = new EmbedBuilder()
+        .setTitle('📄 活動の詳細情報')
+        .setColor('#3F51B5')
+        .setDescription(`🎯 ${activityInfo.content}`)
+        .addFields(
+          { name: 'ID', value: activityInfo.id.toString(), inline: true },
+          { name: 'ステータス', value: statusText[activityInfo.status] || activityInfo.status, inline: true },
+          { name: '登録日', value: activityInfo.created_at, inline: true },
+          { name: '更新日', value: activityInfo.updated_at, inline: true }
+        )
+        .setTimestamp();
+      
+      if (activityInfo.memo) {
+        embed.addFields({ name: '備考', value: activityInfo.memo, inline: false });
+      }
+      
+      // ステータスに応じたアクションヒント
+      let actionHint = '';
+      switch (activityInfo.status) {
+        case 'planned':
+          actionHint = '完了記録: /activity done（選択式） | スキップ: /activity skip（選択式）';
+          break;
+        case 'done':
+          actionHint = '振り返り記録: /report（選択式）';
+          break;
+        case 'skipped':
+          actionHint = '再チャレンジしたい場合は新しく追加してください';
+          break;
+      }
+      
+      if (actionHint) {
+        embed.setFooter({ text: actionHint });
+      }
+      
+      await interaction.editReply({ embeds: [embed], components: [] });
+    } else {
+      await interaction.editReply({ 
+        content: '❌ 指定された活動の詳細情報が見つかりません。', 
+        components: [] 
+      });
+    }
+  }
+}
+
+// 🆕 レポートの選択メニュー処理
+async function handleReportSelection(interaction) {
+  const customId = interaction.customId;
+  
+  console.log(`📝 レポート選択処理: ${customId}`);
+  
+  if (customId === 'report_category_select') {
+    // カテゴリが選択された
+    const selectedCategory = interaction.values[0];
+    const reportHandler = require('./handlers/reportHandler');
+    await reportHandler.showItemSelection(interaction, selectedCategory);
+  }
+  
+  else if (customId.startsWith('report_item_select_')) {
+    // アイテムが選択された
+    const parts = customId.split('_');
+    const category = parts[3]; // report_item_select_book → book
+    const selectedItemId = interaction.values[0];
+    
+    // レポート入力画面を表示
+    const reportHandler = require('./handlers/reportHandler');
+    await reportHandler.showReportInput(interaction, category, selectedItemId);
+  }
+}
+
+// 🆕 レポート履歴の選択メニュー処理
+async function handleReportsSelection(interaction) {
+  const customId = interaction.customId;
+  
+  console.log(`📋 レポート履歴選択処理: ${customId}`);
+  
+  if (customId === 'reports_history_category_select') {
+    // カテゴリが選択された
+    const selectedCategory = interaction.values[0];
+    const reportsHandler = require('./handlers/reportsHandler');
+    await reportsHandler.showHistoryItemSelection(interaction, selectedCategory);
+  }
+  
+  else if (customId.startsWith('reports_history_item_select_')) {
+    // アイテムが選択された
+    const parts = customId.split('_');
+    const category = parts[4]; // reports_history_item_select_book → book
+    const selectedItemId = interaction.values[0];
+    
+    // 履歴を表示
+    const reportsHandler = require('./handlers/reportsHandler');
+    await reportsHandler.showItemHistory(interaction, category, selectedItemId);
+  }
+}
+
 // 🆕 本のページネーション処理
 async function handleBookPagination(interaction) {
   const customId = interaction.customId;
@@ -629,6 +827,92 @@ async function handleMoviePagination(interaction) {
       const movieHandler = require('./handlers/movieHandler');
       await movieHandler.handleInfoWithPagination(interaction, allMovies, page);
     }
+  }
+}
+
+// 🆕 活動のページネーション処理
+async function handleActivityPagination(interaction) {
+  const customId = interaction.customId;
+  
+  if (customId.includes('activity_done_')) {
+    const page = parseInt(customId.split('_').pop());
+    const plannedActivities = await googleSheets.getActivitiesByStatus('planned');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const activityHandler = require('./handlers/activityHandler');
+      await activityHandler.handleDoneWithPagination(interaction, plannedActivities, page);
+    }
+  }
+  
+  else if (customId.includes('activity_skip_')) {
+    const page = parseInt(customId.split('_').pop());
+    const plannedActivities = await googleSheets.getActivitiesByStatus('planned');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const activityHandler = require('./handlers/activityHandler');
+      await activityHandler.handleSkipWithPagination(interaction, plannedActivities, page);
+    }
+  }
+  
+  else if (customId.includes('activity_info_')) {
+    const page = parseInt(customId.split('_').pop());
+    const allActivities = await googleSheets.getAllActivities();
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const activityHandler = require('./handlers/activityHandler');
+      await activityHandler.handleInfoWithPagination(interaction, allActivities, page);
+    }
+  }
+}
+
+// 🆕 レポート・レポート履歴のページネーション処理
+async function handleReportPagination(interaction) {
+  const customId = interaction.customId;
+  
+  // reportハンドラーのページネーション
+  if (customId.startsWith('report_') && (customId.includes('_prev_') || customId.includes('_next_'))) {
+    const parts = customId.split('_');
+    const category = parts[1]; // report_book_prev_1 → book
+    const page = parseInt(parts.pop());
+    
+    let items = [];
+    switch (category) {
+      case 'book':
+        items = await googleSheets.getAllBooks();
+        break;
+      case 'movie':
+        items = await googleSheets.getAllMovies();
+        break;
+      case 'activity':
+        items = await googleSheets.getAllActivities();
+        break;
+    }
+    
+    const reportHandler = require('./handlers/reportHandler');
+    await reportHandler.showItemSelectionWithPagination(interaction, category, items, page);
+  }
+  
+  // reportsハンドラーのページネーション
+  else if (customId.startsWith('reports_history_') && (customId.includes('_prev_') || customId.includes('_next_'))) {
+    const parts = customId.split('_');
+    const category = parts[2]; // reports_history_book_prev_1 → book
+    const page = parseInt(parts.pop());
+    
+    let items = [];
+    switch (category) {
+      case 'book':
+        items = await googleSheets.getAllBooks();
+        break;
+      case 'movie':
+        items = await googleSheets.getAllMovies();
+        break;
+      case 'activity':
+        items = await googleSheets.getAllActivities();
+        break;
+    }
+    
+    const reportsHandler = require('./handlers/reportsHandler');
+    await reportsHandler.showHistoryItemSelectionWithPagination(interaction, category, items, page);
   }
 }
 
