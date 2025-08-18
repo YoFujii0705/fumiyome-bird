@@ -1,79 +1,11 @@
-// services/goalService.js (完全版 - 永続化対応)
-const fs = require('fs');
-const path = require('path');
+// services/goalService.js (Google Sheets対応版)
 
 class GoalService {
   constructor() {
     this.googleSheets = null;
-    this.goals = new Map();
-    this.goalsFilePath = path.join(__dirname, '../data/goals.json');
+    this.goals = new Map(); // ローカルキャッシュとして使用
     
-    console.log('🎯 GoalService 初期化中...');
-    
-    // 起動時に保存された目標を読み込み
-    this.loadGoalsFromFile();
-  }
-
-  /**
-   * ファイルから目標を読み込み
-   */
-  loadGoalsFromFile() {
-    try {
-      this.ensureDataDirectory();
-      
-      if (fs.existsSync(this.goalsFilePath)) {
-        const data = fs.readFileSync(this.goalsFilePath, 'utf8');
-        const goalsData = JSON.parse(data);
-        
-        // Map に復元
-        for (const [userId, goals] of Object.entries(goalsData)) {
-          this.goals.set(userId, goals);
-        }
-        
-        console.log(`✅ ${this.goals.size}人の目標をファイルから読み込みました`);
-        
-        // デバッグ: 読み込んだ目標を表示
-        for (const [userId, goals] of this.goals) {
-          console.log(`📋 ユーザー ${userId} の目標:`, JSON.stringify(goals, null, 2));
-        }
-      } else {
-        console.log('📁 目標ファイルが存在しません。新規ファイルを作成します。');
-        this.saveGoalsToFile(); // 空のファイルを作成
-      }
-    } catch (error) {
-      console.error('❌ 目標読み込みエラー:', error);
-    }
-  }
-
-  /**
-   * 目標をファイルに保存
-   */
-  saveGoalsToFile() {
-    try {
-      this.ensureDataDirectory();
-      
-      // Map を Object に変換
-      const goalsData = {};
-      for (const [userId, goals] of this.goals) {
-        goalsData[userId] = goals;
-      }
-      
-      fs.writeFileSync(this.goalsFilePath, JSON.stringify(goalsData, null, 2));
-      console.log('💾 目標をファイルに保存しました:', this.goalsFilePath);
-    } catch (error) {
-      console.error('❌ 目標保存エラー:', error);
-    }
-  }
-
-  /**
-   * データディレクトリを確保
-   */
-  ensureDataDirectory() {
-    const dataDir = path.dirname(this.goalsFilePath);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-      console.log('📁 データディレクトリを作成しました:', dataDir);
-    }
+    console.log('🎯 GoalService 初期化中（Google Sheets対応）...');
   }
 
   /**
@@ -85,259 +17,382 @@ class GoalService {
   }
 
   /**
-   * ユーザーの目標を取得
+   * ユーザーの目標を取得（Google Sheets から）
    */
   async getGoals(userId) {
-    const userGoals = this.goals.get(userId);
-    
-    if (!userGoals) {
-      // デフォルト目標を返す
-      return {
+    try {
+      if (!this.googleSheets) {
+        console.warn('⚠️ GoogleSheetsService が設定されていません');
+        return { weekly: {}, monthly: {} };
+      }
+
+      console.log(`📊 ユーザー ${userId} の目標をGoogle Sheetsから取得中...`);
+      
+      // goals_master シートからデータを取得
+      const goalsData = await this.googleSheets.getData('goals_master!A:M');
+      
+      if (!goalsData || goalsData.length <= 1) {
+        console.log('📋 目標データが見つかりません');
+        return { weekly: {}, monthly: {} };
+      }
+
+      // ヘッダー行をスキップしてユーザーのデータを検索
+      const userRow = goalsData.slice(1).find(row => row[0] === userId);
+      
+      if (!userRow) {
+        console.log(`📋 ユーザー ${userId} の目標が見つかりません`);
+        return { weekly: {}, monthly: {} };
+      }
+
+      // 列に従ってデータを解析
+      // A:user_id B:weekly_books C:weekly_movies D:weekly_animes E:weekly_activities F:weekly_reports
+      // G:monthly_books H:monthly_movies I:monthly_animes J:monthly_activities K:monthly_reports L:updated_at
+      const goals = {
         weekly: {},
         monthly: {}
       };
+
+      // 週次目標の解析
+      if (userRow[1]) goals.weekly.books = parseInt(userRow[1]) || 0;
+      if (userRow[2]) goals.weekly.movies = parseInt(userRow[2]) || 0;
+      if (userRow[3]) goals.weekly.animes = parseInt(userRow[3]) || 0;
+      if (userRow[4]) goals.weekly.activities = parseInt(userRow[4]) || 0;
+      if (userRow[5]) goals.weekly.reports = parseInt(userRow[5]) || 0;
+
+      // 月次目標の解析
+      if (userRow[6]) goals.monthly.books = parseInt(userRow[6]) || 0;
+      if (userRow[7]) goals.monthly.movies = parseInt(userRow[7]) || 0;
+      if (userRow[8]) goals.monthly.animes = parseInt(userRow[8]) || 0;
+      if (userRow[9]) goals.monthly.activities = parseInt(userRow[9]) || 0;
+      if (userRow[10]) goals.monthly.reports = parseInt(userRow[10]) || 0;
+
+      console.log(`✅ ユーザー ${userId} の目標取得完了:`, goals);
+      
+      // ローカルキャッシュにも保存
+      this.goals.set(userId, goals);
+      
+      return goals;
+    } catch (error) {
+      console.error('❌ 目標取得エラー:', error);
+      return { weekly: {}, monthly: {} };
     }
-    
-    return userGoals;
   }
 
   /**
-   * 目標を設定（永続化対応）
+   * 目標を設定（Google Sheets に保存）
    */
   async setGoal(userId, period, category, target) {
-    let userGoals = this.goals.get(userId) || { weekly: {}, monthly: {} };
-    
-    if (!userGoals[period]) {
-      userGoals[period] = {};
-    }
-    
-    userGoals[period][category] = parseInt(target);
-    this.goals.set(userId, userGoals);
-    
-    // ファイルに保存
-    this.saveGoalsToFile();
-    
-    console.log(`目標設定: ${userId} - ${period} ${category}: ${target}`);
-    return true;
-  }
-
-  /**
-   * プリセットから目標を一括設定（永続化対応）
-   */
-  async setGoalsFromPreset(userId, presetData) {
     try {
-      let userGoals = this.goals.get(userId) || { weekly: {}, monthly: {} };
-      
-      // 週次目標を設定
-      if (presetData.weekly) {
-        userGoals.weekly = { ...presetData.weekly };
+      if (!this.googleSheets) {
+        throw new Error('GoogleSheetsService が設定されていません');
       }
+
+      console.log(`🎯 目標設定: ${userId} - ${period} ${category}: ${target}`);
+
+      // 現在の目標を取得
+      let currentGoals = await this.getGoals(userId);
       
-      // 月次目標を設定
-      if (presetData.monthly) {
-        userGoals.monthly = { ...presetData.monthly };
+      // 新しい目標を設定
+      if (!currentGoals[period]) {
+        currentGoals[period] = {};
       }
-      
-      this.goals.set(userId, userGoals);
-      
-      // ファイルに保存
-      this.saveGoalsToFile();
-      
-      console.log(`プリセット目標設定: ${userId}`, presetData);
+      currentGoals[period][category] = parseInt(target);
+
+      // Google Sheets に保存
+      await this.saveGoalsToSheets(userId, currentGoals);
+
+      console.log(`✅ 目標設定完了: ${userId} - ${period} ${category}: ${target}`);
       return true;
     } catch (error) {
-      console.error('プリセット設定エラー:', error);
+      console.error('❌ 目標設定エラー:', error);
       throw error;
     }
   }
 
   /**
-   * 目標をリセット（永続化対応）
+   * プリセットから目標を一括設定
    */
-  async resetAllGoals(userId) {
-    this.goals.delete(userId);
-    this.saveGoalsToFile();
-    console.log(`全目標リセット: ${userId}`);
-    return true;
+  async setGoalsFromPreset(userId, presetData) {
+    try {
+      if (!this.googleSheets) {
+        throw new Error('GoogleSheetsService が設定されていません');
+      }
+
+      console.log(`🎯 プリセット目標設定: ${userId}`, presetData);
+
+      const goals = {
+        weekly: { ...presetData.weekly },
+        monthly: { ...presetData.monthly }
+      };
+
+      // Google Sheets に保存
+      await this.saveGoalsToSheets(userId, goals);
+
+      console.log(`✅ プリセット目標設定完了: ${userId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ プリセット設定エラー:', error);
+      throw error;
+    }
   }
 
   /**
-   * 期間別目標リセット（永続化対応）
+   * 目標をGoogle Sheetsに保存
    */
-  async resetGoals(userId, period = null) {
-    if (!period || period === 'all') {
-      return this.resetAllGoals(userId);
+  async saveGoalsToSheets(userId, goals) {
+    try {
+      console.log(`💾 Google Sheetsに目標を保存中: ${userId}`);
+
+      // 現在のデータを取得
+      const goalsData = await this.googleSheets.getData('goals_master!A:M');
+      
+      // ヘッダー行が存在しない場合は作成
+      if (!goalsData || goalsData.length === 0) {
+        const headers = [
+          'user_id', 'weekly_books', 'weekly_movies', 'weekly_animes', 'weekly_activities', 'weekly_reports',
+          'monthly_books', 'monthly_movies', 'monthly_animes', 'monthly_activities', 'monthly_reports', 'updated_at'
+        ];
+        await this.googleSheets.appendData('goals_master!A:M', headers);
+      }
+
+      // ユーザーの既存行を探す
+      let userRowIndex = -1;
+      if (goalsData && goalsData.length > 1) {
+        userRowIndex = goalsData.slice(1).findIndex(row => row[0] === userId);
+        if (userRowIndex >= 0) {
+          userRowIndex += 2; // ヘッダー行とインデックス調整
+        }
+      }
+
+      // 更新データを準備
+      const now = new Date().toLocaleString('ja-JP');
+      const rowData = [
+        userId,
+        goals.weekly.books || '',
+        goals.weekly.movies || '',
+        goals.weekly.animes || '',
+        goals.weekly.activities || '',
+        goals.weekly.reports || '',
+        goals.monthly.books || '',
+        goals.monthly.movies || '',
+        goals.monthly.animes || '',
+        goals.monthly.activities || '',
+        goals.monthly.reports || '',
+        now
+      ];
+
+      if (userRowIndex > 0) {
+        // 既存行を更新
+        console.log(`📝 既存行を更新: 行${userRowIndex}`);
+        const updateRange = `goals_master!A${userRowIndex}:L${userRowIndex}`;
+        await this.googleSheets.updateData(updateRange, rowData);
+      } else {
+        // 新しい行を追加
+        console.log(`➕ 新しい行を追加`);
+        await this.googleSheets.appendData('goals_master!A:M', rowData);
+      }
+
+      console.log(`✅ Google Sheetsに目標保存完了: ${userId}`);
+      
+      // ローカルキャッシュも更新
+      this.goals.set(userId, goals);
+
+    } catch (error) {
+      console.error('❌ Google Sheets保存エラー:', error);
+      throw error;
     }
-    
-    let userGoals = this.goals.get(userId);
-    if (!userGoals) return true;
-    
-    if (period === 'weekly') {
-      userGoals.weekly = {};
-    } else if (period === 'monthly') {
-      userGoals.monthly = {};
-    }
-    
-    this.goals.set(userId, userGoals);
-    this.saveGoalsToFile();
-    
-    console.log(`${period}目標リセット: ${userId}`);
-    return true;
   }
 
-/**
- * 現在の進捗を取得（アニメ対応版）
- */
-async getCurrentProgress(userId) {
-  try {
-    if (!this.googleSheets) {
-      console.warn('⚠️ GoogleSheetsService が設定されていません');
+  /**
+   * 目標をリセット
+   */
+  async resetAllGoals(userId) {
+    try {
+      const emptyGoals = { weekly: {}, monthly: {} };
+      await this.saveGoalsToSheets(userId, emptyGoals);
+      console.log(`✅ 全目標リセット完了: ${userId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ 目標リセットエラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 期間別目標リセット
+   */
+  async resetGoals(userId, period = null) {
+    try {
+      if (!period || period === 'all') {
+        return await this.resetAllGoals(userId);
+      }
+
+      const currentGoals = await this.getGoals(userId);
+      
+      if (period === 'weekly') {
+        currentGoals.weekly = {};
+      } else if (period === 'monthly') {
+        currentGoals.monthly = {};
+      }
+
+      await this.saveGoalsToSheets(userId, currentGoals);
+      console.log(`✅ ${period}目標リセット完了: ${userId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ 期間別リセットエラー:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 現在の進捗を取得（アニメ対応版）
+   */
+  async getCurrentProgress(userId) {
+    try {
+      if (!this.googleSheets) {
+        console.warn('⚠️ GoogleSheetsService が設定されていません');
+        return {
+          weekly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 },
+          monthly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 }
+        };
+      }
+
+      console.log('📊 週次統計取得開始（アニメ含む）');
+      const weeklyStats = await this.googleSheets.getWeeklyStats();
+      console.log('📊 月次統計取得開始（アニメ含む）');
+      const monthlyStats = await this.googleSheets.getMonthlyStats();
+
+      // 安全なデータ抽出（undefined対策・アニメ追加）
+      const weeklyProgress = {
+        books: weeklyStats?.finishedBooks || 0,
+        movies: weeklyStats?.watchedMovies || 0,
+        animes: weeklyStats?.completedAnimes || 0,
+        activities: weeklyStats?.completedActivities || 0,
+        reports: weeklyStats?.reports || 0
+      };
+
+      const monthlyProgress = {
+        books: monthlyStats?.finishedBooks || 0,
+        movies: monthlyStats?.watchedMovies || 0,
+        animes: monthlyStats?.completedAnimes || 0,
+        activities: monthlyStats?.completedActivities || 0,
+        reports: monthlyStats?.reports || 0
+      };
+
+      console.log('✅ 週次統計取得完了（アニメ含む）:', weeklyProgress);
+      console.log('✅ 月次統計取得完了（アニメ含む）:', monthlyProgress);
+
+      return {
+        weekly: weeklyProgress,
+        monthly: monthlyProgress
+      };
+    } catch (error) {
+      console.error('❌ 進捗取得エラー:', error);
       return {
         weekly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 },
         monthly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 }
       };
     }
-
-    console.log('📊 週次統計取得開始（アニメ含む）');
-    const weeklyStats = await this.googleSheets.getWeeklyStats();
-    console.log('📊 月次統計取得開始（アニメ含む）');
-    const monthlyStats = await this.googleSheets.getMonthlyStats();
-
-    // 安全なデータ抽出（undefined対策・アニメ追加）
-    const weeklyProgress = {
-      books: weeklyStats?.finishedBooks || 0,
-      movies: weeklyStats?.watchedMovies || 0,
-      animes: weeklyStats?.completedAnimes || 0, // 🆕 アニメ追加
-      activities: weeklyStats?.completedActivities || 0,
-      reports: weeklyStats?.reports || 0
-    };
-
-    const monthlyProgress = {
-      books: monthlyStats?.finishedBooks || 0,
-      movies: monthlyStats?.watchedMovies || 0,
-      animes: monthlyStats?.completedAnimes || 0, // 🆕 アニメ追加
-      activities: monthlyStats?.completedActivities || 0,
-      reports: monthlyStats?.reports || 0
-    };
-
-    console.log('✅ 週次統計取得完了（アニメ含む）:', weeklyProgress);
-    console.log('✅ 月次統計取得完了（アニメ含む）:', monthlyProgress);
-
-    return {
-      weekly: weeklyProgress,
-      monthly: monthlyProgress
-    };
-  } catch (error) {
-    console.error('❌ 進捗取得エラー:', error);
-    // エラー時はゼロデータを返す（アニメ含む）
-    return {
-      weekly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 },
-      monthly: { books: 0, movies: 0, animes: 0, activities: 0, reports: 0 }
-    };
   }
-}
 
   /**
- * 進捗分析を取得（アニメ対応版）
- */
-async getProgressAnalysis(userId) {
-  try {
-    if (!this.googleSheets) {
-      console.warn('⚠️ GoogleSheetsService が設定されていません（進捗分析）');
-      return {
-        today: { books: 0, movies: 0, animes: 0, activities: 0 },
-        streak: 0,
-        weeklyProgress: 0,
-        momentum: 'stable'
-      };
-    }
-
-    console.log('📝 過去7日間のレポート取得開始');
-    const recentReports = await this.googleSheets.getRecentReports(7);
-    console.log(`✅ ${recentReports?.length || 0}件のレポートを取得しました`);
-
-    // recentReports が null や undefined の場合の対策
-    if (!recentReports || !Array.isArray(recentReports)) {
-      console.warn('⚠️ レポートデータが無効です');
-      return {
-        today: { books: 0, movies: 0, animes: 0, activities: 0 },
-        streak: 0,
-        weeklyProgress: 0,
-        momentum: 'stable'
-      };
-    }
-
-    // 今日の実績を計算（安全な日付処理・アニメ追加）
-    const today = new Date().toISOString().slice(0, 10);
-    const todayReports = recentReports.filter(report => {
-      if (!report || !report.timestamp) return false;
-      
-      try {
-        let dateStr;
-        if (report.timestamp instanceof Date) {
-          dateStr = report.timestamp.toISOString().slice(0, 10);
-        } else if (typeof report.timestamp === 'string') {
-          if (report.timestamp.includes('T')) {
-            dateStr = report.timestamp.slice(0, 10);
-          } else {
-            dateStr = report.timestamp;
-          }
-        } else {
-          dateStr = new Date(report.timestamp).toISOString().slice(0, 10);
-        }
-        
-        return dateStr === today;
-      } catch (error) {
-        console.log('⚠️ 日付処理エラー:', report.timestamp, error);
-        return false;
+   * 進捗分析を取得（アニメ対応版）
+   */
+  async getProgressAnalysis(userId) {
+    try {
+      if (!this.googleSheets) {
+        console.warn('⚠️ GoogleSheetsService が設定されていません（進捗分析）');
+        return {
+          today: { books: 0, movies: 0, animes: 0, activities: 0 },
+          streak: 0,
+          weeklyProgress: 0,
+          momentum: 'stable'
+        };
       }
-    });
 
-    const todayStats = {
-      books: todayReports.filter(r => r.category === 'book').length,
-      movies: todayReports.filter(r => r.category === 'movie').length,
-      animes: todayReports.filter(r => r.category === 'anime').length, // 🆕 アニメ追加
-      activities: todayReports.filter(r => r.category === 'activity').length
-    };
+      console.log('📝 過去7日間のレポート取得開始');
+      const recentReports = await this.googleSheets.getRecentReports(7);
+      console.log(`✅ ${recentReports?.length || 0}件のレポートを取得しました`);
 
-    console.log('🎯 今日の実績（アニメ含む）:', todayStats);
+      if (!recentReports || !Array.isArray(recentReports)) {
+        console.warn('⚠️ レポートデータが無効です');
+        return {
+          today: { books: 0, movies: 0, animes: 0, activities: 0 },
+          streak: 0,
+          weeklyProgress: 0,
+          momentum: 'stable'
+        };
+      }
 
-    // ストリーク計算
-    const streak = this.calculateStreak(recentReports);
-    const weeklyProgress = await this.calculateWeeklyProgress(recentReports);
-    const momentum = this.calculateMomentum(recentReports);
+      // 今日の実績を計算（アニメ追加）
+      const today = new Date().toISOString().slice(0, 10);
+      const todayReports = recentReports.filter(report => {
+        if (!report || !report.timestamp) return false;
+        
+        try {
+          let dateStr;
+          if (report.timestamp instanceof Date) {
+            dateStr = report.timestamp.toISOString().slice(0, 10);
+          } else if (typeof report.timestamp === 'string') {
+            if (report.timestamp.includes('T')) {
+              dateStr = report.timestamp.slice(0, 10);
+            } else {
+              dateStr = report.timestamp;
+            }
+          } else {
+            dateStr = new Date(report.timestamp).toISOString().slice(0, 10);
+          }
+          
+          return dateStr === today;
+        } catch (error) {
+          console.log('⚠️ 日付処理エラー:', report.timestamp, error);
+          return false;
+        }
+      });
 
-    const analysis = {
-      today: todayStats,
-      streak,
-      weeklyProgress,
-      momentum
-    };
+      const todayStats = {
+        books: todayReports.filter(r => r.category === 'book').length,
+        movies: todayReports.filter(r => r.category === 'movie').length,
+        animes: todayReports.filter(r => r.category === 'anime').length,
+        activities: todayReports.filter(r => r.category === 'activity').length
+      };
 
-    console.log('📊 進捗分析結果（アニメ含む）:', analysis);
-    return analysis;
+      console.log('🎯 今日の実績（アニメ含む）:', todayStats);
 
-  } catch (error) {
-    console.error('❌ 進捗分析エラー:', error);
-    return {
-      today: { books: 0, movies: 0, animes: 0, activities: 0 },
-      streak: 0,
-      weeklyProgress: 0,
-      momentum: 'stable'
-    };
+      const streak = this.calculateStreak(recentReports);
+      const weeklyProgress = await this.calculateWeeklyProgress(recentReports);
+      const momentum = this.calculateMomentum(recentReports);
+
+      const analysis = {
+        today: todayStats,
+        streak,
+        weeklyProgress,
+        momentum
+      };
+
+      console.log('📊 進捗分析結果（アニメ含む）:', analysis);
+      return analysis;
+
+    } catch (error) {
+      console.error('❌ 進捗分析エラー:', error);
+      return {
+        today: { books: 0, movies: 0, animes: 0, activities: 0 },
+        streak: 0,
+        weeklyProgress: 0,
+        momentum: 'stable'
+      };
+    }
   }
-}
+
   /**
-   * ストリークを計算（修正版）
+   * ストリークを計算
    */
   calculateStreak(recentReports) {
     if (!recentReports || recentReports.length === 0) {
-      console.log('📊 レポートデータが空のため、ストリーク=0');
       return 0;
     }
 
     try {
-      // 日付別にグループ化（安全な日付処理）
       const reportsByDate = {};
       recentReports.forEach(report => {
         try {
@@ -362,7 +417,6 @@ async getProgressAnalysis(userId) {
         }
       });
 
-      // 連続日数を計算
       let streak = 0;
       const today = new Date();
       
@@ -378,7 +432,6 @@ async getProgressAnalysis(userId) {
         }
       }
 
-      console.log(`🔥 計算されたストリーク: ${streak}日`);
       return streak;
     } catch (error) {
       console.error('ストリーク計算エラー:', error);
@@ -387,7 +440,7 @@ async getProgressAnalysis(userId) {
   }
 
   /**
-   * 週次進捗を計算（修正版）
+   * 週次進捗を計算
    */
   async calculateWeeklyProgress(recentReports) {
     if (!recentReports || recentReports.length === 0) return 0;
@@ -409,7 +462,6 @@ async getProgressAnalysis(userId) {
           
           return reportDate >= weekStart;
         } catch (error) {
-          console.log('⚠️ 週次進捗計算で日付処理エラー:', report.timestamp);
           return false;
         }
       });
@@ -422,13 +474,12 @@ async getProgressAnalysis(userId) {
   }
 
   /**
-   * モメンタム（勢い）を計算（修正版）
+   * モメンタム（勢い）を計算
    */
   calculateMomentum(recentReports) {
     if (!recentReports || recentReports.length < 7) return 'building';
 
     try {
-      // 最近の7件と前の7件を比較
       const thisWeek = recentReports.slice(0, 7).length;
       const lastWeek = recentReports.slice(7, 14).length;
 
@@ -439,17 +490,6 @@ async getProgressAnalysis(userId) {
       console.error('モメンタム計算エラー:', error);
       return 'stable';
     }
-  }
-
-  /**
-   * 全ユーザーの目標を取得
-   */
-  getAllUserGoals() {
-    const allGoals = {};
-    for (const [userId, goals] of this.goals) {
-      allGoals[userId] = goals;
-    }
-    return allGoals;
   }
 
   /**
@@ -499,47 +539,35 @@ async getProgressAnalysis(userId) {
   }
 
   /**
-   * テスト用のモックユーザー作成
+   * デバッグ用：Google Sheetsの目標データを確認
    */
-  createTestUser(userId) {
-    const testGoals = {
-      weekly: {
-        books: 2,
-        movies: 3,
-        activities: 5,
-        reports: 7
-      },
-      monthly: {
-        books: 8,
-        movies: 12,
-        activities: 20,
-        reports: 30
+  async debugGoalsData() {
+    try {
+      if (!this.googleSheets) {
+        console.log('❌ GoogleSheetsService が設定されていません');
+        return;
       }
-    };
 
-    this.goals.set(userId, testGoals);
-    this.saveGoalsToFile(); // 永続化
-    console.log(`テストユーザー作成: ${userId}`);
-    return testGoals;
-  }
-
-  /**
-   * 統計取得
-   */
-  getStats() {
-    const totalUsers = this.goals.size;
-    const activeGoalTypes = new Set();
-    
-    for (const [userId, userGoals] of this.goals) {
-      Object.keys(userGoals.weekly || {}).forEach(category => activeGoalTypes.add(`weekly_${category}`));
-      Object.keys(userGoals.monthly || {}).forEach(category => activeGoalTypes.add(`monthly_${category}`));
+      console.log('🔍 goals_master シートの内容を確認中...');
+      
+      const goalsData = await this.googleSheets.getData('goals_master!A:M');
+      
+      console.log('📊 取得した生データ:');
+      console.log(`行数: ${goalsData ? goalsData.length : 0}`);
+      
+      if (goalsData && goalsData.length > 0) {
+        console.log('ヘッダー行:', goalsData[0]);
+        console.log('データ行 (最初の3行):');
+        goalsData.slice(1, 4).forEach((row, index) => {
+          console.log(`  ${index + 1}:`, row);
+        });
+      } else {
+        console.log('📭 データが見つかりません');
+      }
+      
+    } catch (error) {
+      console.error('❌ デバッグエラー:', error);
     }
-
-    return {
-      totalUsers,
-      activeGoalTypes: Array.from(activeGoalTypes),
-      goalTypeCount: activeGoalTypes.size
-    };
   }
 }
 
