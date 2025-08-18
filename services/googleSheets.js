@@ -1531,6 +1531,166 @@ async getRecentReports(days = 7) {
     }
   }
 
+// 🆕 レポート追加メソッド
+async addReport(category, itemId, itemTitle, content) {
+  try {
+    console.log('💾 addReport開始:', { category, itemId, itemTitle, content });
+
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が必要です');
+    }
+
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    // 現在の日時を取得
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('ja-JP');
+    const timestampStr = now.toLocaleString('ja-JP');
+    
+    // 既存のレポート数を取得してIDを生成
+    let newId = 1;
+    try {
+      const existingReports = await sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: 'daily_reports!A:A',
+      });
+      
+      if (existingReports.data.values && existingReports.data.values.length > 1) {
+        // ヘッダーを除いたデータ行数 + 1
+        newId = existingReports.data.values.length;
+      }
+    } catch (error) {
+      console.log('⚠️ 既存レポート数取得に失敗、ID=1を使用');
+    }
+
+    // daily_reportsシートに追加するデータ
+    // シートの列構造: A=ID, B=日付, C=カテゴリ, D=アイテムID, E=アイテムタイトル, F=レポート内容, G=作成日時, H=更新日時
+    const values = [[
+      newId,           // A列: ID
+      dateStr,         // B列: 日付
+      category,        // C列: カテゴリ
+      itemId,          // D列: アイテムID
+      itemTitle,       // E列: アイテムタイトル
+      content,         // F列: レポート内容
+      timestampStr,    // G列: 作成日時
+      timestampStr     // H列: 更新日時
+    ]];
+
+    console.log('📊 追加するレポートデータ:', values);
+
+    // Google Sheetsに追加
+    const response = await sheets.spreadsheets.values.append({
+      spreadsheetId: this.spreadsheetId,
+      range: 'daily_reports!A:H',
+      valueInputOption: 'USER_ENTERED',
+      resource: {
+        values: values
+      }
+    });
+
+    console.log('✅ レポート追加完了:', response.data);
+    console.log('📍 追加されたレンジ:', response.data.updates?.updatedRange);
+    
+    return newId;
+
+  } catch (error) {
+    console.error('❌ addReport エラー:', error);
+    console.error('❌ エラースタック:', error.stack);
+    throw error;
+  }
+}
+
+// 🆕 全レポート取得メソッド
+async getAllReports() {
+  try {
+    console.log('🔍 getAllReports 開始');
+
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'daily_reports!A:H',
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length <= 1) {
+      console.log('📝 レポートデータが空');
+      return [];
+    }
+
+    const reports = rows.slice(1).map((row, index) => ({
+      id: parseInt(row[0]) || (index + 1),
+      date: row[1] || '',
+      category: row[2] || '',
+      item_id: parseInt(row[3]) || 0,
+      item_title: row[4] || '',
+      content: row[5] || '',
+      created_at: row[6] || '',
+      updated_at: row[7] || ''
+    })).filter(report => report.content);
+
+    console.log(`✅ getAllReports 完了: ${reports.length}件取得`);
+    return reports;
+
+  } catch (error) {
+    console.error('❌ getAllReports エラー:', error);
+    throw error;
+  }
+}
+
+// 🆕 カテゴリ別レポート取得メソッド
+async getReportsByCategory(category) {
+  try {
+    console.log(`🔍 getReportsByCategory 開始: ${category}`);
+
+    const allReports = await this.getAllReports();
+    const categoryReports = allReports.filter(report => report.category === category);
+
+    console.log(`✅ カテゴリ「${category}」のレポート ${categoryReports.length}件取得`);
+    return categoryReports;
+
+  } catch (error) {
+    console.error('❌ getReportsByCategory エラー:', error);
+    throw error;
+  }
+}
+
+// 🆕 アイテム別レポート取得メソッド
+async getReportsByItem(category, itemId) {
+  try {
+    console.log(`🔍 getReportsByItem 開始: ${category}, ID: ${itemId}`);
+
+    const allReports = await this.getAllReports();
+    const itemReports = allReports.filter(report => 
+      report.category === category && 
+      report.item_id === parseInt(itemId)
+    );
+
+    console.log(`✅ アイテム「${category}:${itemId}」のレポート ${itemReports.length}件取得`);
+    return itemReports;
+
+  } catch (error) {
+    console.error('❌ getReportsByItem エラー:', error);
+    throw error;
+  }
+}
+
+// 🆕 レポート削除メソッド（オプション）
+async deleteReport(reportId) {
+  try {
+    console.log(`🗑️ deleteReport 開始: ID ${reportId}`);
+    
+    // 実装は複雑なので、ステータスを「削除済み」に変更する方法を推奨
+    // 完全削除が必要な場合は別途実装
+    
+    console.log('⚠️ レポート削除は未実装です');
+    return false;
+
+  } catch (error) {
+    console.error('❌ deleteReport エラー:', error);
+    throw error;
+  }
+}
+
   // === 統計関連のメソッド ===
 
   /**
