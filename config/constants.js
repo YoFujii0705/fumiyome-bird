@@ -48,17 +48,22 @@ const STATUS = {
     WATCHED: 'watched',
     MISSED: 'missed'
   },
+  // 🆕 アニメステータス追加
+  ANIME: {
+    WANT_TO_WATCH: 'want_to_watch',
+    WATCHING: 'watching',
+    COMPLETED: 'completed',
+    DROPPED: 'dropped'
+  },
   ACTIVITY: {
     PLANNED: 'planned',
     DONE: 'done',
     SKIPPED: 'skipped'
   },
-// 🆕 ウィッシュリストのステータス
   WISHLIST: {
     WANT_TO_BUY: 'want_to_buy',
     BOUGHT: 'bought'
   },
-  // 🆕 記事のステータス
   ARTICLE: {
     WANT_TO_READ: 'want_to_read',
     READ: 'read'
@@ -79,17 +84,22 @@ const STATUS_NAMES = {
     [STATUS.MOVIE.WATCHED]: '視聴済み',
     [STATUS.MOVIE.MISSED]: '見逃し'
   },
+  // 🆕 アニメステータス表示名
+  ANIME: {
+    [STATUS.ANIME.WANT_TO_WATCH]: '観たい',
+    [STATUS.ANIME.WATCHING]: '視聴中',
+    [STATUS.ANIME.COMPLETED]: '完走済み',
+    [STATUS.ANIME.DROPPED]: '中断'
+  },
   ACTIVITY: {
     [STATUS.ACTIVITY.PLANNED]: '予定中',
     [STATUS.ACTIVITY.DONE]: '完了',
     [STATUS.ACTIVITY.SKIPPED]: 'スキップ'
   },
-// 🆕 ウィッシュリストの表示名
   WISHLIST: {
     [STATUS.WISHLIST.WANT_TO_BUY]: '未購入',
     [STATUS.WISHLIST.BOUGHT]: '購入済み'
   },
-  // 🆕 記事の表示名
   ARTICLE: {
     [STATUS.ARTICLE.WANT_TO_READ]: '未読',
     [STATUS.ARTICLE.READ]: '読了済み'
@@ -110,23 +120,27 @@ const STATUS_EMOJIS = {
     [STATUS.MOVIE.WATCHED]: '✅',
     [STATUS.MOVIE.MISSED]: '😅'
   },
+  // 🆕 アニメステータス絵文字
+  ANIME: {
+    [STATUS.ANIME.WANT_TO_WATCH]: '🍿',
+    [STATUS.ANIME.WATCHING]: '📺',
+    [STATUS.ANIME.COMPLETED]: '✅',
+    [STATUS.ANIME.DROPPED]: '💔'
+  },
   ACTIVITY: {
     [STATUS.ACTIVITY.PLANNED]: '🎯',
     [STATUS.ACTIVITY.DONE]: '✅',
     [STATUS.ACTIVITY.SKIPPED]: '😅'
   },
-// 🆕 ウィッシュリストの絵文字
   WISHLIST: {
     [STATUS.WISHLIST.WANT_TO_BUY]: '🛒',
     [STATUS.WISHLIST.BOUGHT]: '✅'
   },
-  // 🆕 記事の絵文字
   ARTICLE: {
     [STATUS.ARTICLE.WANT_TO_READ]: '📝',
-    [STATUS.ARTICLE.READ]: '✅'
+    [STATUS.ARTICLE.read]: '✅'
   }
 };
-
 // カテゴリ情報
 const CATEGORIES = {
   BOOK: {
@@ -141,26 +155,61 @@ const CATEGORIES = {
     emoji: '🎬',
     color: '#E91E63'
   },
+  // 🆕 アニメカテゴリ追加
+  ANIME: {
+    name: 'anime',
+    displayName: 'アニメ',
+    emoji: '📺',
+    color: '#FF6B6B'
+  },
   ACTIVITY: {
     name: 'activity',
     displayName: '活動',
     emoji: '🎯',
     color: '#00BCD4'
   },
-// 🆕 ウィッシュリストカテゴリ
   WISHLIST: {
     name: 'wishlist',
     displayName: '買いたいもの',
     emoji: '🛒',
     color: '#E91E63'
   },
-  // 🆕 記事カテゴリ
   ARTICLE: {
     name: 'article',
     displayName: '記事',
     emoji: '📰',
     color: '#2196F3'
   }
+};
+
+const ANIME_GENRES = {
+  ACTION: 'action',
+  ADVENTURE: 'adventure',
+  COMEDY: 'comedy',
+  DRAMA: 'drama',
+  FANTASY: 'fantasy',
+  HORROR: 'horror',
+  MYSTERY: 'mystery',
+  ROMANCE: 'romance',
+  SCI_FI: 'sci-fi',
+  SPORTS: 'sports',
+  THRILLER: 'thriller',
+  OTHER: 'other'
+};
+
+const ANIME_GENRE_NAMES = {
+  [ANIME_GENRES.ACTION]: 'アクション',
+  [ANIME_GENRES.ADVENTURE]: 'アドベンチャー',
+  [ANIME_GENRES.COMEDY]: 'コメディ',
+  [ANIME_GENRES.DRAMA]: 'ドラマ',
+  [ANIME_GENRES.FANTASY]: 'ファンタジー',
+  [ANIME_GENRES.HORROR]: 'ホラー',
+  [ANIME_GENRES.MYSTERY]: 'ミステリー',
+  [ANIME_GENRES.ROMANCE]: 'ロマンス',
+  [ANIME_GENRES.SCI_FI]: 'SF',
+  [ANIME_GENRES.SPORTS]: 'スポーツ',
+  [ANIME_GENRES.THRILLER]: 'スリラー',
+  [ANIME_GENRES.OTHER]: 'その他'
 };
 
 // 🆕 優先度定義
@@ -225,6 +274,7 @@ const COLORS = {
   // カテゴリ別カラー
   BOOK: '#9C27B0',
   MOVIE: '#E91E63',
+  ANIME: '#FF6B6B',
   ACTIVITY: '#00BCD4',
   REPORT: '#4CAF50',
   STATS: '#9C27B0',
@@ -301,7 +351,8 @@ const SHEETS_CONFIG = {
     MOVIES: 'movies_master!A:F',
     ACTIVITIES: 'activities_master!A:F',
     REPORTS: 'daily_reports!A:E',
-    // 🆕 新しい範囲
+    // 🆕 アニメ範囲追加
+    ANIMES: 'anime_master!A:K',
     WISHLIST: 'wishlist_master!A:J',
     ARTICLES: 'articles_master!A:K'
   },
@@ -318,7 +369,11 @@ const SHEETS_CONFIG = {
     REPORTS: {
       ID: 0, DATE: 1, CATEGORY: 2, ITEM_ID: 3, CONTENT: 4
     },
-    // 🆕 新しい列マッピング
+    // 🆕 アニメ列マッピング追加
+    ANIMES: {
+      ID: 0, CREATED_AT: 1, TITLE: 2, TOTAL_EPISODES: 3, WATCHED_EPISODES: 4,
+      GENRE: 5, MEMO: 6, STATUS: 7, UPDATED_AT: 8, START_DATE: 9, FINISH_DATE: 10
+    },
     WISHLIST: {
       ID: 0, CREATED_AT: 1, NAME: 2, PRICE: 3, ACTUAL_PRICE: 4, 
       URL: 5, PRIORITY: 6, MEMO: 7, STATUS: 8, UPDATED_AT: 9
@@ -495,25 +550,24 @@ const GOALS = {
   WEEKLY: {
     BOOKS: 2,
     MOVIES: 3,
+    ANIMES: 1, // 🆕 アニメ目標追加
     ACTIVITIES: 5,
     REPORTS: 7,
-// 🆕 新しい週次目標
     ARTICLES_READ: 5,
     WISHLIST_PURCHASES: 1
   },
   MONTHLY: {
     BOOKS: 8,
     MOVIES: 12,
+    ANIMES: 4, // 🆕 アニメ目標追加
     ACTIVITIES: 20,
     REPORTS: 30,
-// 🆕 新しい月次目標
     ARTICLES_READ: 20,
     WISHLIST_PURCHASES: 3,
-    BUDGET_LIMIT: 50000  // 5万円
+    BUDGET_LIMIT: 50000
   },
   DAILY: {
     REPORTS: 1,
-// 🆕 新しい日次目標
     ARTICLES_READ: 1
   }
 };
