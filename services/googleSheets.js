@@ -799,7 +799,142 @@ async getBookCounts() {
   }
 
   // === 映画関連のメソッド ===
+/**
+   * 全ての映画を取得
+   */
+  async getAllMovies() {
+    try {
+      console.log('🎬 Movies データを取得中...');
+      
+      if (!this.auth) {
+        console.log('認証なし - 空の配列を返します');
+        return [];
+      }
 
+      const range = 'movies_master!A:F';
+      const operation = async () => {
+        const auth = await this.auth.getClient();
+        return this.sheets.spreadsheets.values.get({
+          auth,
+          spreadsheetId: this.spreadsheetId,
+          range: range,
+        });
+      };
+
+      const response = await this.executeWithTimeout(operation, 10000);
+      const rows = response.data.values;
+      
+      if (!rows || rows.length <= 1) {
+        console.log('🎬 Moviesデータが見つかりません');
+        return [];
+      }
+
+      const headers = rows[0];
+      console.log('📋 Movies ヘッダー:', headers);
+      
+      const movies = [];
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0) continue;
+        
+        const movie = {
+          id: row[0] || '',           // A列: ID
+          registeredAt: row[1] || '', // B列: 登録日時
+          title: row[2] || '',        // C列: タイトル
+          memo: row[3] || '',         // D列: 備考
+          status: row[4] || '',       // E列: ステータス
+          date: row[5] || ''          // F列: 日付
+        };
+        
+        if (movie.id && movie.id.toString().trim() !== '') {
+          movies.push(movie);
+        }
+      }
+
+      console.log(`✅ ${movies.length}件のMoviesを取得しました`);
+      return movies;
+
+    } catch (error) {
+      console.error('❌ Movies取得エラー:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * IDで特定の映画を取得
+   */
+  async getMovieById(id) {
+    try {
+      console.log(`🎬 ID: ${id} の映画を検索中...`);
+      
+      const movies = await this.getAllMovies();
+      const movie = movies.find(movie => parseInt(movie.id) === parseInt(id));
+      
+      if (!movie) {
+        console.log(`❌ ID: ${id} の映画が見つかりません`);
+        return null;
+      }
+      
+      console.log(`✅ 映画が見つかりました: ${movie.title}`);
+      return {
+        id: parseInt(movie.id),
+        title: movie.title,
+        memo: movie.memo || '',
+        status: movie.status,
+        created_at: movie.registeredAt,
+        updated_at: movie.date
+      };
+    } catch (error) {
+      console.error('getMovieById エラー:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 特定ステータスの映画を取得するヘルパー
+   */
+  async getMoviesByStatus(status) {
+    try {
+      console.log(`🎬 ステータス "${status}" の映画を取得中...`);
+      
+      const movies = await this.getAllMovies();
+      const filteredMovies = movies.filter(movie => movie.status === status);
+      
+      console.log(`✅ ステータス "${status}" の映画: ${filteredMovies.length}本`);
+      return filteredMovies;
+    } catch (error) {
+      console.error(`❌ ステータス "${status}" の映画取得エラー:`, error.message);
+      return [];
+    }
+  }
+
+  /**
+   * 観たい映画を取得
+   */
+  async getWantToWatchMovies() {
+    try {
+      const wantToWatchMovies = await this.getMoviesByStatus('want_to_watch');
+      return wantToWatchMovies.map(movie => `[${movie.id}] ${movie.title}`);
+    } catch (error) {
+      console.error('❌ 観たい映画取得エラー:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * 視聴済み映画を取得
+   */
+  async getWatchedMovies() {
+    try {
+      const watchedMovies = await this.getMoviesByStatus('watched');
+      return watchedMovies.map(movie => `[${movie.id}] ${movie.title}`);
+    } catch (error) {
+      console.error('❌ 視聴済み映画取得エラー:', error.message);
+      return [];
+    }
+  }
+
+  
   /**
    * 映画を追加
    */
