@@ -32,6 +32,7 @@ module.exports = {
           description: '映画の感想や視聴記録',
           value: 'movie'
         },
+        { label: '📺 アニメ', discription: 'アニメの感想や視聴記録', value: 'anime' }, 
         {
           label: '🎯 活動・目標',
           description: '活動の進捗や振り返り',
@@ -48,7 +49,8 @@ module.exports = {
       .addFields(
         { name: '📚 本・読書', value: '読書の感想、進捗、気づきなど', inline: true },
         { name: '🎬 映画・視聴', value: '映画の感想、評価、印象など', inline: true },
-        { name: '🎯 活動・目標', value: '活動の振り返り、進捗、学びなど', inline: true }
+        { name: '🎯 活動・目標', value: '活動の振り返り、進捗、学びなど', inline: true },
+        { name: '📺 アニメ・視聴', value: 'アニメの感想。評価、印象など', inline: true }
       )
       .setFooter({ text: 'カテゴリを選択してください' });
 
@@ -77,6 +79,11 @@ module.exports = {
           items = await googleSheets.getAllActivities();
           categoryName = '活動・目標';
           emoji = '🎯';
+          break;
+        case 'activity':
+          items = await googleSheets.getAllAnimes();
+          categoryName = 'アニメ・視聴';
+          emoji = '📺';
           break;
       }
 
@@ -156,6 +163,9 @@ module.exports = {
         case 'activity':
           item = await googleSheets.getActivityById(itemId);
           break;
+        case 'anime':
+          item = await googleSheets.getAnimeById(itemId);
+          break;
       }
 
       if (!item) {
@@ -170,7 +180,8 @@ module.exports = {
       const categoryEmoji = {
         'book': '📚',
         'movie': '🎬',
-        'activity': '🎯'
+        'activity': '🎯',
+        'anime': '📺'
       }[category];
 
       // レポート入力待機画面を表示
@@ -410,13 +421,15 @@ module.exports = {
       const categoryEmoji = {
         'book': '📚',
         'movie': '🎬', 
-        'activity': '🎯'
+        'activity': '🎯',
+        'anime': '📺'
       }[category];
 
       const categoryName = {
         'book': '本・読書',
         'movie': '映画・視聴',
-        'activity': '活動・目標'
+        'activity': '活動・目標',
+        'anime': 'アニメ・視聴'
       }[category];
 
       const options = currentItems.map(item => {
@@ -501,7 +514,10 @@ module.exports = {
       'missed': '見逃し',
       'planned': '予定中',
       'done': '完了',
-      'skipped': 'スキップ'
+      'skipped': 'スキップ',
+      'watching': '視聴中',
+      'completed': '完走済み',
+      'dropped': '中断'
     };
     return texts[status] || status;
   },
@@ -518,7 +534,10 @@ module.exports = {
       'missed': '😅',
       'planned': '🎯',
       'done': '✅',
-      'skipped': '😅'
+      'skipped': '😅',
+      'watching': '📺',
+      'completed': '✅',
+      'dropped': '💔'
     };
     return emojis[status] || '❓';
   },
@@ -566,6 +585,16 @@ module.exports = {
           '• 今日は30分間実践',
           '• 新しいテクニックを習得',
           '• 明日は応用編にチャレンジ'
+        ]
+      },
+      'anime': {
+        name: 'アニメ・視聴',
+        emoji: '📺',
+        color: '#d9aacd',
+        examples: [
+          '• 今日は一話観た',
+          '• 作画が良かった',
+          '• 一気に完走した'
         ]
       }
     };
