@@ -651,20 +651,241 @@ async handleInfo(interaction) {
     await interaction.editReply({ embeds: [embed], components });
   },
 
-  async handleStartWithPagination(interaction, books, page = 0) {
-    // Similar implementation to handleBuyWithPagination
-    // ... (省略: 同様のパターン)
-  },
+  // bookHandler.jsに追加する不足しているページネーションメソッド
 
-  async handleFinishWithPagination(interaction, books, page = 0) {
-    // Similar implementation to handleBuyWithPagination
-    // ... (省略: 同様のパターン)
-  },
+async handleStartWithPagination(interaction, books, page = 0) {
+  try {
+    console.log(`📖 handleStartWithPagination: ページ ${page}, 本数 ${books.length}`);
+    
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(books.length / itemsPerPage);
+    const currentBooks = books.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    console.log(`📊 ページ情報: ${page + 1}/${totalPages}, 表示数: ${currentBooks.length}`);
+    
+    if (currentBooks.length === 0) {
+      await interaction.editReply({ 
+        content: '❌ 表示する本がありません。', 
+        components: [] 
+      });
+      return;
+    }
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`book_start_select_page_${page}`)
+      .setPlaceholder('読書を開始する本を選択してください')
+      .addOptions(
+        currentBooks.map(book => ({
+          label: `${book.title}`.slice(0, 100),
+          description: `作者: ${book.author || '不明'}`.slice(0, 100),
+          value: book.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    // ページネーションボタンを追加
+    if (totalPages > 1) {
+      const buttons = [];
+      
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`book_start_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`book_start_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
+      }
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('📖 読書開始')
+      .setColor('#FF9800')
+      .setDescription(`積読本が ${books.length} 冊あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '📋 積読本', value: currentBooks.map(book => `📚 ${book.title} - ${book.author || '不明'}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    console.log('📤 読書開始ページネーション付きの返信を送信');
+    await interaction.editReply({ embeds: [embed], components });
+    
+  } catch (error) {
+    console.error('❌ handleStartWithPagination エラー:', error);
+    await interaction.editReply({ 
+      content: '❌ 読書開始ページネーション処理中にエラーが発生しました。', 
+      components: [] 
+    });
+  }
+},
+
+async handleFinishWithPagination(interaction, books, page = 0) {
+  try {
+    console.log(`✅ handleFinishWithPagination: ページ ${page}, 本数 ${books.length}`);
+    
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(books.length / itemsPerPage);
+    const currentBooks = books.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    console.log(`📊 ページ情報: ${page + 1}/${totalPages}, 表示数: ${currentBooks.length}`);
+    
+    if (currentBooks.length === 0) {
+      await interaction.editReply({ 
+        content: '❌ 表示する本がありません。', 
+        components: [] 
+      });
+      return;
+    }
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`book_finish_select_page_${page}`)
+      .setPlaceholder('読了する本を選択してください')
+      .addOptions(
+        currentBooks.map(book => ({
+          label: `${book.title}`.slice(0, 100),
+          description: `作者: ${book.author || '不明'}`.slice(0, 100),
+          value: book.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    // ページネーションボタンを追加
+    if (totalPages > 1) {
+      const buttons = [];
+      
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`book_finish_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`book_finish_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
+      }
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('📖 読了記録')
+      .setColor('#FF9800')
+      .setDescription(`読書中の本が ${books.length} 冊あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '📖 読書中の本', value: currentBooks.map(book => `📚 ${book.title} - ${book.author || '不明'}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    console.log('📤 読了記録ページネーション付きの返信を送信');
+    await interaction.editReply({ embeds: [embed], components });
+    
+  } catch (error) {
+    console.error('❌ handleFinishWithPagination エラー:', error);
+    await interaction.editReply({ 
+      content: '❌ 読了記録ページネーション処理中にエラーが発生しました。', 
+      components: [] 
+    });
+  }
+},
 
   async handleInfoWithPagination(interaction, books, page = 0) {
-    // Similar implementation to handleBuyWithPagination
-    // ... (省略: 同様のパターン)
-  },
+  try {
+    console.log(`📄 handleInfoWithPagination: ページ ${page}, 本数 ${books.length}`);
+    
+    const itemsPerPage = 25;
+    const totalPages = Math.ceil(books.length / itemsPerPage);
+    const currentBooks = books.slice(page * itemsPerPage, (page + 1) * itemsPerPage);
+    
+    console.log(`📊 ページ情報: ${page + 1}/${totalPages}, 表示数: ${currentBooks.length}`);
+    
+    if (currentBooks.length === 0) {
+      await interaction.editReply({ 
+        content: '❌ 表示する本がありません。', 
+        components: [] 
+      });
+      return;
+    }
+    
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`book_info_select_page_${page}`)
+      .setPlaceholder('詳細を確認する本を選択してください')
+      .addOptions(
+        currentBooks.map(book => ({
+          label: `${book.title}`.slice(0, 100),
+          description: `作者: ${book.author || '不明'} | ${this.getStatusText(book.status)}`.slice(0, 100),
+          value: book.id.toString()
+        }))
+      );
+    
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
+    
+    // ページネーションボタンを追加
+    if (totalPages > 1) {
+      const buttons = [];
+      
+      if (page > 0) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`book_info_prev_${page - 1}`)
+            .setLabel('◀ 前のページ')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (page < totalPages - 1) {
+        buttons.push(
+          new ButtonBuilder()
+            .setCustomId(`book_info_next_${page + 1}`)
+            .setLabel('次のページ ▶')
+            .setStyle(ButtonStyle.Secondary)
+        );
+      }
+      
+      if (buttons.length > 0) {
+        components.push(new ActionRowBuilder().addComponents(buttons));
+      }
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('📄 本の詳細情報')
+      .setColor('#3F51B5')
+      .setDescription(`登録されている本が ${books.length} 冊あります（${page + 1}/${totalPages}ページ）`)
+      .addFields(
+        { name: '📚 登録済みの本', value: currentBooks.map(book => `${this.getStatusEmoji(book.status)} ${book.title} - ${book.author || '不明'}`).join('\n').slice(0, 1024), inline: false }
+      );
+    
+    console.log('📤 ページネーション付きの返信を送信');
+    await interaction.editReply({ embeds: [embed], components });
+    
+  } catch (error) {
+    console.error('❌ handleInfoWithPagination エラー:', error);
+    await interaction.editReply({ 
+      content: '❌ ページネーション処理中にエラーが発生しました。', 
+      components: [] 
+    });
+  }
+},
 
   // ヘルパーメソッド
   getStatusEmoji(status) {
