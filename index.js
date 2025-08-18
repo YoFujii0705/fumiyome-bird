@@ -286,166 +286,310 @@ client.on('interactionCreate', async interaction => {
 });
 
 // 🆕 本の選択メニュー処理
+// 🆕 本の選択メニュー処理（完全版）
 async function handleBookSelection(interaction) {
-  const selectedBookId = interaction.values[0];
-  const customId = interaction.customId;
-  
-  console.log(`📚 本選択処理: ${customId}, ID: ${selectedBookId}`);
-  
-  if (customId.startsWith('book_buy_select')) {
-    // 本を購入済みに変更
-    const boughtBook = await googleSheets.buyBook(selectedBookId);
+  try {
+    const selectedBookId = interaction.values[0];
+    const customId = interaction.customId;
     
-    if (boughtBook) {
-      const embed = new EmbedBuilder()
-        .setTitle('🛒 本を購入しました！')
-        .setColor('#2196F3')
-        .setDescription('購入おめでとうございます！積読リストに追加されました！📚✨')
-        .addFields(
-          { name: 'ID', value: boughtBook.id.toString(), inline: true },
-          { name: 'タイトル', value: boughtBook.title, inline: true },
-          { name: '作者', value: boughtBook.author, inline: true },
-          { name: 'ステータス変更', value: '🛒 買いたい → 📋 積読', inline: false }
-        )
-        .setFooter({ text: '読む準備ができたら /book start で読書を開始しましょう！' })
-        .setTimestamp();
+    console.log(`📚 本選択処理開始: ${customId}, ID: ${selectedBookId}`);
+    
+    // GoogleSheetsサービスの状態確認
+    if (!googleSheets || !googleSheets.auth) {
+      console.error('❌ GoogleSheetsサービスが利用できません');
+      await interaction.editReply({ 
+        content: '❌ データベース接続に問題があります。しばらく待ってから再試行してください。', 
+        components: [] 
+      });
+      return;
+    }
+
+    // タイムアウト設定（30秒）
+    const timeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('処理がタイムアウトしました')), 30000)
+    );
+
+    // 🛒 本を購入済みに変更
+    if (customId.startsWith('book_buy_select')) {
+      console.log('🛒 本購入処理開始');
       
-      if (boughtBook.memo) {
-        embed.addFields({ name: '備考', value: boughtBook.memo, inline: false });
+      const buyPromise = googleSheets.buyBook(selectedBookId);
+      const boughtBook = await Promise.race([buyPromise, timeout]);
+      
+      if (boughtBook) {
+        const embed = new EmbedBuilder()
+          .setTitle('🛒 本を購入しました！')
+          .setColor('#2196F3')
+          .setDescription('購入おめでとうございます！積読リストに追加されました！📚✨')
+          .addFields(
+            { name: 'ID', value: boughtBook.id.toString(), inline: true },
+            { name: 'タイトル', value: boughtBook.title, inline: true },
+            { name: '作者', value: boughtBook.author || '不明', inline: true },
+            { name: 'ステータス変更', value: '🛒 買いたい → 📋 積読', inline: false }
+          )
+          .setFooter({ text: '読む準備ができたら /book start で読書を開始しましょう！' })
+          .setTimestamp();
+        
+        if (boughtBook.memo) {
+          embed.addFields({ name: '備考', value: boughtBook.memo, inline: false });
+        }
+        
+        console.log('✅ 本購入完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 本購入失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定された本が見つからないか、既に購入済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 📖 読書を開始
+    else if (customId.startsWith('book_start_select')) {
+      console.log('📖 読書開始処理開始');
+      
+      const startPromise = googleSheets.startReading(selectedBookId);
+      const startedBook = await Promise.race([startPromise, timeout]);
+      
+      if (startedBook) {
+        const embed = new EmbedBuilder()
+          .setTitle('📖 読書開始！')
+          .setColor('#FF9800')
+          .setDescription('素晴らしい！新しい読書の旅が始まりますね！📚✨')
+          .addFields(
+            { name: 'ID', value: startedBook.id.toString(), inline: true },
+            { name: 'タイトル', value: startedBook.title, inline: true },
+            { name: '作者', value: startedBook.author || '不明', inline: true },
+            { name: 'ステータス変更', value: '📋 積読 → 📖 読書中', inline: false }
+          )
+          .setFooter({ text: '読了したら /book finish で完了記録を！進捗は /report book で記録できます' })
+          .setTimestamp();
+        
+        if (startedBook.memo) {
+          embed.addFields({ name: '備考', value: startedBook.memo, inline: false });
+        }
+        
+        console.log('✅ 読書開始完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 読書開始失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定された本が見つからないか、既に読書開始済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // ✅ 読書を完了
+    else if (customId.startsWith('book_finish_select')) {
+      console.log('✅ 読書完了処理開始');
+      
+      const finishPromise = googleSheets.finishReading(selectedBookId);
+      const finishedBook = await Promise.race([finishPromise, timeout]);
+      
+      if (finishedBook) {
+        const embed = new EmbedBuilder()
+          .setTitle('🎉 読了おめでとうございます！')
+          .setColor('#FFD700')
+          .setDescription('素晴らしい達成感ですね！また一つ知識の扉が開かれました📚✨')
+          .addFields(
+            { name: 'ID', value: finishedBook.id.toString(), inline: true },
+            { name: 'タイトル', value: finishedBook.title, inline: true },
+            { name: '作者', value: finishedBook.author || '不明', inline: true },
+            { name: 'ステータス変更', value: '📖 読書中 → ✅ 読了', inline: false }
+          )
+          .setFooter({ text: '感想を /report book で記録してみませんか？' })
+          .setTimestamp();
+        
+        if (finishedBook.memo) {
+          embed.addFields({ name: '備考', value: finishedBook.memo, inline: false });
+        }
+        
+        console.log('✅ 読書完了完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 読書完了失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定された本が見つからないか、既に読了済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 📄 本の詳細情報を表示
+    else if (customId.startsWith('book_info_select')) {
+      console.log('📄 本詳細情報取得開始');
+      
+      const infoPromise = googleSheets.getBookById(selectedBookId);
+      const bookInfo = await Promise.race([infoPromise, timeout]);
+      
+      console.log('📖 取得した本情報:', bookInfo);
+      
+      if (bookInfo) {
+        const statusText = {
+          'want_to_buy': '🛒 買いたい',
+          'want_to_read': '📋 積読',
+          'reading': '📖 読書中',
+          'finished': '✅ 読了済み',
+          'abandoned': '❌ 中断'
+        };
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📄 本の詳細情報')
+          .setColor('#3F51B5')
+          .setDescription(`📚 ${bookInfo.title}`)
+          .addFields(
+            { name: 'ID', value: bookInfo.id.toString(), inline: true },
+            { name: '作者', value: bookInfo.author || '不明', inline: true },
+            { name: 'ステータス', value: statusText[bookInfo.status] || bookInfo.status, inline: true }
+          )
+          .setTimestamp();
+        
+        // 日付情報がある場合のみ追加
+        if (bookInfo.created_at && bookInfo.created_at.trim() !== '') {
+          embed.addFields({ name: '登録日', value: bookInfo.created_at, inline: true });
+        }
+        if (bookInfo.updated_at && bookInfo.updated_at.trim() !== '') {
+          embed.addFields({ name: '更新日', value: bookInfo.updated_at, inline: true });
+        }
+        
+        if (bookInfo.memo && bookInfo.memo.trim() !== '') {
+          embed.addFields({ name: '備考', value: bookInfo.memo, inline: false });
+        }
+        
+        // ステータスに応じたアクションヒント
+        let actionHint = '';
+        switch (bookInfo.status) {
+          case 'want_to_buy':
+            actionHint = '購入記録: /book buy（選択式）';
+            break;
+          case 'want_to_read':
+            actionHint = '読書開始: /book start（選択式）';
+            break;
+          case 'reading':
+            actionHint = '読了記録: /book finish（選択式）';
+            break;
+          case 'finished':
+            actionHint = '感想記録: /report book（選択式）';
+            break;
+        }
+        
+        if (actionHint) {
+          embed.setFooter({ text: actionHint });
+        }
+        
+        console.log('✅ 本詳細情報表示完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+        
+      } else {
+        console.log('❌ 本が見つからない');
+        await interaction.editReply({ 
+          content: '❌ 指定された本の詳細情報が見つかりません。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🔄 ページネーション処理
+    else if (customId.includes('_page_')) {
+      console.log('📄 ページネーション処理');
+      
+      const parts = customId.split('_');
+      const action = parts[1]; // buy, start, finish, info
+      const page = parseInt(parts[parts.length - 1]);
+      
+      console.log(`ページネーション: ${action}, ページ: ${page}`);
+      
+      // 各アクションに応じたデータを取得
+      let books = [];
+      switch (action) {
+        case 'buy':
+          books = await Promise.race([googleSheets.getBooksByStatus('want_to_buy'), timeout]);
+          break;
+        case 'start':
+          books = await Promise.race([googleSheets.getBooksByStatus('want_to_read'), timeout]);
+          break;
+        case 'finish':
+          books = await Promise.race([googleSheets.getBooksByStatus('reading'), timeout]);
+          break;
+        case 'info':
+          books = await Promise.race([googleSheets.getAllBooks(), timeout]);
+          break;
       }
       
-      await interaction.editReply({ embeds: [embed], components: [] });
-    } else {
+      if (books && books.length > 0) {
+        const bookHandler = require('./handlers/bookHandler');
+        
+        switch (action) {
+          case 'buy':
+            await bookHandler.handleBuyWithPagination(interaction, books, page);
+            break;
+          case 'start':
+            await bookHandler.handleStartWithPagination(interaction, books, page);
+            break;
+          case 'finish':
+            await bookHandler.handleFinishWithPagination(interaction, books, page);
+            break;
+          case 'info':
+            await bookHandler.handleInfoWithPagination(interaction, books, page);
+            break;
+        }
+      } else {
+        await interaction.editReply({ 
+          content: '❌ データの取得に失敗しました。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🔄 その他の処理
+    else {
+      console.log('❓ 不明な選択処理:', customId);
       await interaction.editReply({ 
-        content: '❌ 指定された本が見つからないか、既に購入済みです。', 
+        content: '❌ 不明な操作です。', 
         components: [] 
       });
     }
-  }
-  
-  else if (customId.startsWith('book_start_select')) {
-    // 読書を開始
-    const startedBook = await googleSheets.startReading(selectedBookId);
     
-    if (startedBook) {
-      const embed = new EmbedBuilder()
-        .setTitle('📖 読書開始！')
-        .setColor('#FF9800')
-        .setDescription('素晴らしい！新しい読書の旅が始まりますね！📚✨')
-        .addFields(
-          { name: 'ID', value: startedBook.id.toString(), inline: true },
-          { name: 'タイトル', value: startedBook.title, inline: true },
-          { name: '作者', value: startedBook.author, inline: true },
-          { name: 'ステータス変更', value: '📋 積読 → 📖 読書中', inline: false }
-        )
-        .setFooter({ text: '読了したら /book finish で完了記録を！進捗は /report book で記録できます' })
-        .setTimestamp();
-      
-      if (startedBook.memo) {
-        embed.addFields({ name: '備考', value: startedBook.memo, inline: false });
-      }
-      
-      await interaction.editReply({ embeds: [embed], components: [] });
-    } else {
-      await interaction.editReply({ 
-        content: '❌ 指定された本が見つからないか、既に読書開始済みです。', 
-        components: [] 
-      });
+  } catch (error) {
+    console.error('❌ handleBookSelection エラー:', error);
+    console.error('❌ エラーメッセージ:', error.message);
+    console.error('❌ エラースタック:', error.stack);
+    
+    // エラーの種類に応じたメッセージ
+    let errorMessage = '❌ 本の選択処理中にエラーが発生しました。';
+    
+    if (error.message.includes('タイムアウト')) {
+      errorMessage = '❌ 処理がタイムアウトしました。ネットワーク接続を確認してください。';
+    } else if (error.message.includes('認証')) {
+      errorMessage = '❌ データベース認証エラーです。管理者に連絡してください。';
+    } else if (error.message.includes('権限')) {
+      errorMessage = '❌ データベースアクセス権限がありません。管理者に連絡してください。';
     }
-  }
-  
-  else if (customId.startsWith('book_finish_select')) {
-    // 読書を完了
-    const finishedBook = await googleSheets.finishReading(selectedBookId);
     
-    if (finishedBook) {
-      const embed = new EmbedBuilder()
-        .setTitle('🎉 読了おめでとうございます！')
-        .setColor('#FFD700')
-        .setDescription('素晴らしい達成感ですね！また一つ知識の扉が開かれました📚✨')
-        .addFields(
-          { name: 'ID', value: finishedBook.id.toString(), inline: true },
-          { name: 'タイトル', value: finishedBook.title, inline: true },
-          { name: '作者', value: finishedBook.author, inline: true },
-          { name: 'ステータス変更', value: '📖 読書中 → ✅ 読了', inline: false }
-        )
-        .setFooter({ text: '感想を /report book で記録してみませんか？' })
-        .setTimestamp();
-      
-      if (finishedBook.memo) {
-        embed.addFields({ name: '備考', value: finishedBook.memo, inline: false });
-      }
-      
-      await interaction.editReply({ embeds: [embed], components: [] });
-    } else {
+    try {
       await interaction.editReply({ 
-        content: '❌ 指定された本が見つからないか、既に読了済みです。', 
+        content: errorMessage + '\n\n🔧 詳細: ' + error.message, 
         components: [] 
       });
-    }
-  }
-  
-  else if (customId.startsWith('book_info_select')) {
-    // 本の詳細情報を表示
-    const bookInfo = await googleSheets.getBookById(selectedBookId);
-    
-    if (bookInfo) {
-      const statusText = {
-        'want_to_buy': '🛒 買いたい',
-        'want_to_read': '📋 積読',
-        'reading': '📖 読書中',
-        'finished': '✅ 読了済み',
-        'abandoned': '❌ 中断'
-      };
+    } catch (replyError) {
+      console.error('❌ エラー応答送信失敗:', replyError);
       
-      const embed = new EmbedBuilder()
-        .setTitle('📄 本の詳細情報')
-        .setColor('#3F51B5')
-        .setDescription(`📚 ${bookInfo.title}`)
-        .addFields(
-          { name: 'ID', value: bookInfo.id.toString(), inline: true },
-          { name: '作者', value: bookInfo.author, inline: true },
-          { name: 'ステータス', value: statusText[bookInfo.status] || bookInfo.status, inline: true },
-          { name: '登録日', value: bookInfo.created_at, inline: true },
-          { name: '更新日', value: bookInfo.updated_at, inline: true }
-        )
-        .setTimestamp();
-      
-      if (bookInfo.memo) {
-        embed.addFields({ name: '備考', value: bookInfo.memo, inline: false });
+      // 最後の手段として、新しい応答を試行
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ 
+            content: errorMessage, 
+            ephemeral: true 
+          });
+        }
+      } catch (finalError) {
+        console.error('❌ 最終エラー応答も失敗:', finalError);
       }
-      
-      // ステータスに応じたアクションヒント
-      let actionHint = '';
-      switch (bookInfo.status) {
-        case 'want_to_buy':
-          actionHint = '購入記録: /book buy（選択式）';
-          break;
-        case 'want_to_read':
-          actionHint = '読書開始: /book start（選択式）';
-          break;
-        case 'reading':
-          actionHint = '読了記録: /book finish（選択式）';
-          break;
-        case 'finished':
-          actionHint = '感想記録: /report book（選択式）';
-          break;
-      }
-      
-      if (actionHint) {
-        embed.setFooter({ text: actionHint });
-      }
-      
-      await interaction.editReply({ embeds: [embed], components: [] });
-    } else {
-      await interaction.editReply({ 
-        content: '❌ 指定された本の詳細情報が見つかりません。', 
-        components: [] 
-      });
     }
   }
 }
-
 // 🆕 映画の選択メニュー処理
 async function handleMovieSelection(interaction) {
   const selectedMovieId = interaction.values[0];
