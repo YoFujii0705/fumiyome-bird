@@ -275,10 +275,10 @@ class GoogleSheetsService {
     
     const sheets = google.sheets({ version: 'v4', auth: this.auth });
     
-    console.log('📊 スプレッドシートからデータ取得中...');
+    console.log('📊 books_masterシートからデータ取得中...');
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: 'Books!A:G', // 必要な列を指定
+      range: 'books_master!A:G',
     });
     
     const rows = response.data.values;
@@ -289,35 +289,44 @@ class GoogleSheetsService {
       return [];
     }
     
-    // ヘッダーを除いてデータを処理
+    // ヘッダー行を確認してログ出力
+    console.log('📋 ヘッダー行:', rows[0]);
+    
+    // ログから推測される実際の列構造：
+    // A列: ID
+    // B列: created_at (作成日時)
+    // C列: title (タイトル)
+    // D列: author (作者)
+    // E列: memo (メモ)
+    // F列: status (ステータス)
+    // G列: updated_at (更新日時)
+    
     const books = rows.slice(1).map((row, index) => {
       try {
         const book = {
-          id: parseInt(row[0]) || (index + 1), // ID
-          title: row[1] || '不明なタイトル',   // タイトル
-          author: row[2] || '不明な作者',      // 作者
-          status: row[3] || 'want_to_read',   // ステータス
-          memo: row[4] || '',                 // メモ
-          created_at: row[5] || '',           // 作成日
-          updated_at: row[6] || ''            // 更新日
+          id: parseInt(row[0]) || (index + 1),  // A列: ID
+          title: row[2] || '不明なタイトル',    // C列: タイトル
+          author: row[3] || '不明な作者',       // D列: 作者
+          status: row[5] || 'want_to_read',    // F列: ステータス
+          memo: row[4] || '',                  // E列: メモ
+          created_at: row[1] || '',            // B列: 作成日
+          updated_at: row[6] || ''             // G列: 更新日
         };
         
-        console.log(`📖 処理した本: ${book.id} - ${book.title} (${book.status})`);
+        console.log(`📖 処理した本: ${book.id} - ${book.title} (${book.author}) [${book.status}]`);
         return book;
         
       } catch (error) {
         console.error(`❌ 行${index + 2}の処理エラー:`, error, 'データ:', row);
         return null;
       }
-    }).filter(book => book !== null && book.title !== '不明なタイトル');
+    }).filter(book => book !== null && book.title && book.title !== '不明なタイトル');
     
     console.log(`✅ getAllBooks 完了: ${books.length}冊取得`);
     return books;
     
   } catch (error) {
     console.error('❌ getAllBooks エラー:', error);
-    console.error('❌ エラー詳細:', error.message);
-    console.error('❌ スタック:', error.stack);
     throw error;
   }
 }
@@ -326,32 +335,43 @@ class GoogleSheetsService {
    * IDで特定の本を取得
    */
   async getBookById(id) {
-    try {
-      console.log(`📚 ID: ${id} の本を検索中...`);
-      
-      const books = await this.getAllBooks();
-      const book = books.find(book => parseInt(book.id) === parseInt(id));
-      
-      if (!book) {
-        console.log(`❌ ID: ${id} の本が見つかりません`);
-        return null;
-      }
-      
-      console.log(`✅ 本が見つかりました: ${book.title} by ${book.author}`);
-      return {
-        id: parseInt(book.id),
-        title: book.title,
-        author: book.author,
-        memo: book.notes || '',
-        status: book.status,
-        created_at: book.registeredAt,
-        updated_at: book.date
-      };
-    } catch (error) {
-      console.error('getBookById エラー:', error);
+  try {
+    console.log(`🔍 getBookById 開始: ID ${id}`);
+    
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'books_master!A:G',
+    });
+    
+    const rows = response.data.values;
+    if (!rows || rows.length <= 1) return null;
+    
+    const bookRow = rows.slice(1).find(row => parseInt(row[0]) === parseInt(id));
+    
+    if (!bookRow) {
+      console.log(`❌ ID ${id} の本が見つかりません`);
       return null;
     }
+    
+    const book = {
+      id: parseInt(bookRow[0]),          // A列: ID
+      title: bookRow[2] || '',           // C列: タイトル
+      author: bookRow[3] || '',          // D列: 作者
+      status: bookRow[5] || 'want_to_read', // F列: ステータス
+      memo: bookRow[4] || '',            // E列: メモ
+      created_at: bookRow[1] || '',      // B列: 作成日
+      updated_at: bookRow[6] || ''       // G列: 更新日
+    };
+    
+    console.log(`✅ getBookById 完了: ${book.title}`);
+    return book;
+    
+  } catch (error) {
+    console.error('❌ getBookById エラー:', error);
+    throw error;
   }
+}
 
  /**
  * 本を追加（修正版）
@@ -595,19 +615,39 @@ async finishReading(id) {
    * 特定ステータスの本を取得するヘルパー
    */
   async getBooksByStatus(status) {
-    try {
-      console.log(`📚 ステータス "${status}" の本を取得中...`);
-      
-      const books = await this.getAllBooks();
-      const filteredBooks = books.filter(book => book.status === status);
-      
-      console.log(`✅ ステータス "${status}" の本: ${filteredBooks.length}冊`);
-      return filteredBooks;
-    } catch (error) {
-      console.error(`❌ ステータス "${status}" の本取得エラー:`, error.message);
-      return [];
-    }
+  try {
+    console.log(`🔍 getBooksByStatus 開始: ${status}`);
+    
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'books_master!A:G',
+    });
+    
+    const rows = response.data.values;
+    if (!rows || rows.length <= 1) return [];
+    
+    const books = rows.slice(1)
+      .map((row, index) => ({
+        id: parseInt(row[0]) || (index + 1),  // A列: ID
+        title: row[2] || '',                  // C列: タイトル
+        author: row[3] || '',                 // D列: 作者
+        status: row[5] || 'want_to_read',     // F列: ステータス
+        memo: row[4] || '',                   // E列: メモ
+        created_at: row[1] || '',             // B列: 作成日
+        updated_at: row[6] || ''              // G列: 更新日
+      }))
+      .filter(book => book.status === status && book.title);
+    
+    console.log(`✅ getBooksByStatus 完了: ${books.length}冊取得 (${status})`);
+    return books;
+    
+  } catch (error) {
+    console.error('❌ getBooksByStatus エラー:', error);
+    throw error;
   }
+}
+
   
 /**
  * 現在読書中の本を取得（通知用にフォーマット済み）
