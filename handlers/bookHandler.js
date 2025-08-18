@@ -297,19 +297,15 @@ module.exports = {
     }
   },
 
-  // 🔧 修正されたwishlistハンドラー
+  // 🔧 修正されたwishlistハンドラー（カテゴリ分け削除版）
   async handleWishlist(interaction) {
     try {
-      // books_masterシートから want_to_buy ステータスの本を取得
-      const allBooks = await googleSheets.getBooks();
+      console.log('🛒 /book wishlist コマンド実行開始');
       
-      // want_to_buyステータスの本のみをフィルタリング
-      const wishlistBooks = allBooks.filter(book => {
-        // 本の文字列からステータスを抽出 (例: "ID: 1 - タイトル by 作者 (want_to_buy)")
-        const statusMatch = book.match(/\(([^)]+)\)$/);
-        const status = statusMatch ? statusMatch[1] : '';
-        return status === 'want_to_buy';
-      });
+      // books_masterシートから want_to_buy ステータスの本を取得
+      const wishlistBooks = await googleSheets.getWishlistBooks();
+      
+      console.log(`🛒 取得した買いたい本: ${wishlistBooks.length}冊`);
       
       if (wishlistBooks.length === 0) {
         const embed = new EmbedBuilder()
@@ -325,59 +321,40 @@ module.exports = {
         return;
       }
       
-      // 買いたい本をカテゴリ分けするための簡易分類
-      const categories = {
-        '📖 小説・文学': [],
-        '📚 技術書・実用書': [],
-        '🎯 自己啓発・ビジネス': [],
-        '📋 その他': []
-      };
-      
-      // 簡易的なカテゴリ分類（タイトルからキーワードで判定）
-      wishlistBooks.forEach(book => {
-        const title = book.toLowerCase();
-        if (title.includes('小説') || title.includes('文学') || title.includes('物語') || title.includes('ノベル')) {
-          categories['📖 小説・文学'].push(book);
-        } else if (title.includes('技術') || title.includes('プログラミング') || title.includes('デザイン') || title.includes('入門')) {
-          categories['📚 技術書・実用書'].push(book);
-        } else if (title.includes('ビジネス') || title.includes('成功') || title.includes('経営') || title.includes('自己啓発')) {
-          categories['🎯 自己啓発・ビジネス'].push(book);
-        } else {
-          categories['📋 その他'].push(book);
-        }
-      });
-      
       const embed = new EmbedBuilder()
         .setTitle('🛒 買いたい本一覧')
         .setColor('#E91E63')
         .setDescription(`購入予定の本が ${wishlistBooks.length} 冊あります`)
         .setTimestamp();
       
-      // カテゴリ別に表示
-      Object.entries(categories).forEach(([categoryName, books]) => {
-        if (books.length > 0) {
-          // 最大5件まで表示
-          const displayBooks = books.slice(0, 5);
-          const moreCount = books.length - 5;
-          
-          let fieldValue = displayBooks.join('\n');
-          if (moreCount > 0) {
-            fieldValue += `\n... 他${moreCount}冊`;
-          }
-          
-          embed.addFields({
-            name: `${categoryName} (${books.length}冊)`,
-            value: fieldValue,
-            inline: false
-          });
-        }
+      // IDの大きい順（新しい順）にソートして表示
+      const sortedBooks = wishlistBooks.sort((a, b) => {
+        const idA = parseInt(a.match(/\[(\d+)\]/)?.[1] || 0);
+        const idB = parseInt(b.match(/\[(\d+)\]/)?.[1] || 0);
+        return idB - idA; // 降順（新しいものから）
+      });
+      
+      // 最大15冊まで表示（Discordの制限により10冊程度が安全）
+      const maxDisplay = 15;
+      const displayBooks = sortedBooks.slice(0, maxDisplay);
+      const moreCount = sortedBooks.length - maxDisplay;
+      
+      let fieldValue = displayBooks.join('\n');
+      if (moreCount > 0) {
+        fieldValue += `\n... 他${moreCount}冊`;
+      }
+      
+      embed.addFields({
+        name: `🛒 買いたい本 (${wishlistBooks.length}冊)`,
+        value: fieldValue,
+        inline: false
       });
       
       embed.setFooter({ text: '購入したら /book buy [ID] で積読リストに移動できます' });
       
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
-      console.error('買いたい本一覧取得エラー:', error);
+      console.error('❌ 買いたい本一覧取得エラー:', error);
       await interaction.editReply('❌ 買いたい本一覧の取得中にエラーが発生しました。');
     }
   },
