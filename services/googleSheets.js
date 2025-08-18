@@ -1111,6 +1111,559 @@ async getBookCounts() {
     }
   }
 
+  // === アニメ関連のメソッド ===
+
+  /**
+   * 全てのアニメを取得
+   */
+  async getAllAnimes() {
+    try {
+      console.log('🔍 getAllAnimes 開始');
+      
+      if (!this.auth) {
+        console.error('❌ Google Sheets認証がありません');
+        throw new Error('Google Sheets認証が必要です');
+      }
+      
+      const sheets = google.sheets({ version: 'v4', auth: this.auth });
+      
+      console.log('📊 anime_masterシートからデータ取得中...');
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: 'anime_master!A:K',
+      });
+      
+      const rows = response.data.values;
+      console.log(`📋 取得した行数: ${rows ? rows.length : 0}`);
+      
+      if (!rows || rows.length <= 1) {
+        console.log('📺 データが空またはヘッダーのみ');
+        return [];
+      }
+      
+      // ヘッダー行を確認してログ出力
+      console.log('📋 ヘッダー行:', rows[0]);
+      
+      // anime_master の列構造：
+      // A列: ID
+      // B列: created_at (登録日時)
+      // C列: title (タイトル)
+      // D列: total_episodes (総話数)
+      // E列: watched_episodes (視聴済み話数)
+      // F列: genre (ジャンル)
+      // G列: memo (備考)
+      // H列: status (ステータス)
+      // I列: updated_at (更新日時)
+      // J列: start_date (視聴開始日)
+      // K列: finish_date (視聴完了日)
+      
+      const animes = rows.slice(1).map((row, index) => {
+        try {
+          const anime = {
+            id: parseInt(row[0]) || (index + 1),  // A列: ID
+            title: row[2] || '不明なタイトル',    // C列: タイトル
+            total_episodes: parseInt(row[3]) || 1, // D列: 総話数
+            watched_episodes: parseInt(row[4]) || 0, // E列: 視聴済み話数
+            genre: row[5] || 'other',            // F列: ジャンル
+            memo: row[6] || '',                  // G列: 備考
+            status: row[7] || 'want_to_watch',   // H列: ステータス
+            created_at: row[1] || '',            // B列: 登録日時
+            updated_at: row[8] || '',            // I列: 更新日時
+            start_date: row[9] || '',            // J列: 視聴開始日
+            finish_date: row[10] || ''           // K列: 視聴完了日
+          };
+          
+          console.log(`📺 処理したアニメ: ${anime.id} - ${anime.title} (${anime.watched_episodes}/${anime.total_episodes}話) [${anime.status}]`);
+          return anime;
+          
+        } catch (error) {
+          console.error(`❌ 行${index + 2}の処理エラー:`, error, 'データ:', row);
+          return null;
+        }
+      }).filter(anime => anime !== null && anime.title && anime.title !== '不明なタイトル');
+      
+      console.log(`✅ getAllAnimes 完了: ${animes.length}本取得`);
+      return animes;
+      
+    } catch (error) {
+      console.error('❌ getAllAnimes エラー:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * IDで特定のアニメを取得
+   */
+  async getAnimeById(id) {
+    try {
+      console.log(`🔍 getAnimeById 開始: ID ${id}`);
+      
+      const sheets = google.sheets({ version: 'v4', auth: this.auth });
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: 'anime_master!A:K',
+      });
+      
+      const rows = response.data.values;
+      if (!rows || rows.length <= 1) return null;
+      
+      const animeRow = rows.slice(1).find(row => parseInt(row[0]) === parseInt(id));
+      
+      if (!animeRow) {
+        console.log(`❌ ID ${id} のアニメが見つかりません`);
+        return null;
+      }
+      
+      const anime = {
+        id: parseInt(animeRow[0]),              // A列: ID
+        title: animeRow[2] || '',               // C列: タイトル
+        total_episodes: parseInt(animeRow[3]) || 1, // D列: 総話数
+        watched_episodes: parseInt(animeRow[4]) || 0, // E列: 視聴済み話数
+        genre: animeRow[5] || 'other',          // F列: ジャンル
+        memo: animeRow[6] || '',                // G列: 備考
+        status: animeRow[7] || 'want_to_watch', // H列: ステータス
+        created_at: animeRow[1] || '',          // B列: 登録日時
+        updated_at: animeRow[8] || '',          // I列: 更新日時
+        start_date: animeRow[9] || '',          // J列: 視聴開始日
+        finish_date: animeRow[10] || ''         // K列: 視聴完了日
+      };
+      
+      console.log(`✅ getAnimeById 完了: ${anime.title}`);
+      return anime;
+      
+    } catch (error) {
+      console.error('❌ getAnimeById エラー:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * アニメを追加
+   */
+  async addAnime(title, totalEpisodes, genre = 'other', memo = '', status = 'want_to_watch') {
+    try {
+      console.log(`📺 新しいアニメを追加: ${title} (${totalEpisodes}話) [${genre}] (${status})`);
+      
+      if (!this.auth) {
+        console.log('認証なし - ダミーIDを返します');
+        return {
+          id: Math.floor(Math.random() * 1000),
+          title,
+          total_episodes: totalEpisodes,
+          watched_episodes: 0,
+          genre,
+          memo,
+          status,
+          registeredAt: new Date().toLocaleString('ja-JP')
+        };
+      }
+      
+      // 既存のアニメを取得して最大IDを確認
+      const existingAnimes = await this.getAllAnimes();
+      
+      // 最大IDを取得
+      let maxId = 0;
+      if (existingAnimes.length > 0) {
+        const ids = existingAnimes
+          .map(anime => parseInt(anime.id))
+          .filter(id => !isNaN(id));
+        maxId = ids.length > 0 ? Math.max(...ids) : 0;
+      }
+      
+      const newId = maxId + 1;
+      const now = new Date().toLocaleString('ja-JP');
+      
+      // 新しい行を作成
+      // A:ID B:登録日時 C:タイトル D:総話数 E:視聴済み話数 F:ジャンル G:備考 H:ステータス I:更新日時 J:開始日 K:完了日
+      const newRow = [
+        newId,           // A列: ID
+        now,             // B列: 登録日時
+        title,           // C列: タイトル
+        totalEpisodes,   // D列: 総話数
+        0,               // E列: 視聴済み話数（初期値0）
+        genre,           // F列: ジャンル
+        memo || '',      // G列: 備考
+        status,          // H列: ステータス
+        now,             // I列: 更新日時
+        '',              // J列: 視聴開始日（空）
+        ''               // K列: 視聴完了日（空）
+      ];
+
+      console.log('🔍 追加するデータ:', newRow);
+
+      const range = 'anime_master!A:K';
+      const operation = async () => {
+        const auth = await this.auth.getClient();
+        return this.sheets.spreadsheets.values.append({
+          auth,
+          spreadsheetId: this.spreadsheetId,
+          range: range,
+          valueInputOption: 'USER_ENTERED',
+          resource: {
+            values: [newRow]
+          }
+        });
+      };
+
+      await this.executeWithTimeout(operation, 10000);
+
+      console.log(`✅ アニメを追加しました: ID ${newId} - ${title} (${status})`);
+      
+      return newId;
+
+    } catch (error) {
+      console.error('❌ アニメの追加エラー:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * アニメのステータスを更新
+   */
+  async updateAnimeStatus(id, status, updateDate = null) {
+    try {
+      const values = await this.getData('anime_master!A:K');
+      const rowIndex = values.findIndex(row => row[0] == id);
+      
+      if (rowIndex === -1) {
+        console.log('指定されたIDのアニメが見つかりません:', id);
+        return null;
+      }
+
+      const now = new Date().toLocaleString('ja-JP');
+      const updateData = [status, now]; // H列:ステータス, I列:更新日時
+      
+      // 特定のステータスの場合は開始日・完了日も更新
+      if (status === 'watching') {
+        // 視聴開始の場合、開始日を設定
+        const startDate = updateDate || now.slice(0, 10);
+        updateData.push(startDate); // J列:開始日
+        
+        const updateRange = `anime_master!H${rowIndex + 1}:J${rowIndex + 1}`;
+        const success = await this.updateData(updateRange, updateData);
+      } else if (status === 'completed') {
+        // 完走の場合、完了日を設定
+        const finishDate = updateDate || now.slice(0, 10);
+        updateData.push('', finishDate); // J列:開始日(空), K列:完了日
+        
+        const updateRange = `anime_master!H${rowIndex + 1}:K${rowIndex + 1}`;
+        const success = await this.updateData(updateRange, updateData);
+      } else {
+        const updateRange = `anime_master!H${rowIndex + 1}:I${rowIndex + 1}`;
+        const success = await this.updateData(updateRange, updateData);
+      }
+      
+      if (success) {
+        const row = values[rowIndex];
+        return {
+          id: row[0],
+          title: row[2],
+          total_episodes: parseInt(row[3]) || 1,
+          watched_episodes: parseInt(row[4]) || 0,
+          genre: row[5],
+          memo: row[6]
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('アニメのステータス更新エラー:', error);
+      return null;
+    }
+  },
+
+  /**
+   * アニメの視聴話数を更新
+   */
+  async updateAnimeEpisodes(id, watchedEpisodes) {
+    try {
+      const values = await this.getData('anime_master!A:K');
+      const rowIndex = values.findIndex(row => row[0] == id);
+      
+      if (rowIndex === -1) {
+        console.log('指定されたIDのアニメが見つかりません:', id);
+        return null;
+      }
+
+      const now = new Date().toLocaleString('ja-JP');
+      const updateRange = `anime_master!E${rowIndex + 1}:I${rowIndex + 1}`;
+      const updateValues = [watchedEpisodes, '', '', '', now]; // E列:視聴済み話数, I列:更新日時
+      
+      const success = await this.updateData(updateRange, updateValues);
+      
+      if (success) {
+        const row = values[rowIndex];
+        return {
+          id: row[0],
+          title: row[2],
+          total_episodes: parseInt(row[3]) || 1,
+          watched_episodes: watchedEpisodes,
+          genre: row[5],
+          memo: row[6]
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('アニメの話数更新エラー:', error);
+      return null;
+    }
+  },
+
+  /**
+   * アニメの視聴を開始
+   */
+  async startWatchingAnime(id) {
+    return this.updateAnimeStatus(id, 'watching');
+  },
+
+  /**
+   * アニメを完走
+   */
+  async completeAnime(id) {
+    try {
+      // まず総話数まで視聴済み話数を更新
+      const anime = await this.getAnimeById(id);
+      if (!anime) return null;
+      
+      await this.updateAnimeEpisodes(id, anime.total_episodes);
+      return this.updateAnimeStatus(id, 'completed');
+    } catch (error) {
+      console.error('アニメ完走エラー:', error);
+      return null;
+    }
+  },
+
+  /**
+   * アニメを視聴中断
+   */
+  async dropAnime(id) {
+    return this.updateAnimeStatus(id, 'dropped');
+  },
+
+  /**
+   * アニメの次の話数を視聴
+   */
+  async watchNextEpisode(id) {
+    try {
+      const anime = await this.getAnimeById(id);
+      if (!anime) return null;
+      
+      if (anime.watched_episodes >= anime.total_episodes) {
+        console.log('すでに全話視聴済みです');
+        return null;
+      }
+      
+      const nextEpisode = anime.watched_episodes + 1;
+      
+      // 話数を更新
+      const result = await this.updateAnimeEpisodes(id, nextEpisode);
+      
+      // 全話視聴完了の場合はステータスを完走に変更
+      if (nextEpisode >= anime.total_episodes) {
+        await this.updateAnimeStatus(id, 'completed');
+      }
+      
+      // エピソードログに記録
+      await this.addEpisodeLog(id, nextEpisode);
+      
+      return result;
+    } catch (error) {
+      console.error('次話視聴記録エラー:', error);
+      return null;
+    }
+  },
+
+  /**
+   * エピソードログを追加
+   */
+  async addEpisodeLog(animeId, episodeNumber, rating = null, notes = '') {
+    try {
+      if (!this.auth) {
+        console.log('認証なし - エピソードログをスキップします');
+        return null;
+      }
+
+      const logId = await this.getNextId('anime_episodes_log');
+      const now = new Date().toLocaleString('ja-JP');
+      const watchedDate = now.slice(0, 10);
+      
+      const values = [logId, animeId, episodeNumber, watchedDate, rating || '', notes, now];
+      const resultId = await this.appendData('anime_episodes_log!A:G', values);
+      
+      console.log('✅ エピソードログ追加成功:', logId);
+      return resultId;
+    } catch (error) {
+      console.error('❌ エピソードログ追加エラー:', error);
+      return null;
+    }
+  },
+
+  /**
+   * アニメのエピソードログを取得
+   */
+  async getAnimeEpisodeLogs(animeId) {
+    try {
+      const values = await this.getData('anime_episodes_log!A:G');
+      
+      const logs = values.slice(1)
+        .filter(row => parseInt(row[1]) === parseInt(animeId))
+        .map(row => ({
+          logId: row[0],
+          animeId: row[1],
+          episodeNumber: parseInt(row[2]),
+          watchedDate: row[3],
+          rating: row[4] ? parseInt(row[4]) : null,
+          notes: row[5] || '',
+          createdAt: row[6]
+        }))
+        .sort((a, b) => a.episodeNumber - b.episodeNumber);
+      
+      return logs;
+    } catch (error) {
+      console.error('エピソードログ取得エラー:', error);
+      return [];
+    }
+  },
+
+  /**
+   * 特定ステータスのアニメを取得するヘルパー
+   */
+  async getAnimesByStatus(status) {
+    try {
+      console.log(`🔍 getAnimesByStatus 開始: ${status}`);
+      
+      const sheets = google.sheets({ version: 'v4', auth: this.auth });
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: 'anime_master!A:K',
+      });
+      
+      const rows = response.data.values;
+      if (!rows || rows.length <= 1) return [];
+      
+      const animes = rows.slice(1)
+        .map((row, index) => ({
+          id: parseInt(row[0]) || (index + 1),  // A列: ID
+          title: row[2] || '',                  // C列: タイトル
+          total_episodes: parseInt(row[3]) || 1, // D列: 総話数
+          watched_episodes: parseInt(row[4]) || 0, // E列: 視聴済み話数
+          genre: row[5] || 'other',             // F列: ジャンル
+          memo: row[6] || '',                   // G列: 備考
+          status: row[7] || 'want_to_watch',    // H列: ステータス
+          created_at: row[1] || '',             // B列: 登録日時
+          updated_at: row[8] || '',             // I列: 更新日時
+          start_date: row[9] || '',             // J列: 視聴開始日
+          finish_date: row[10] || ''            // K列: 視聴完了日
+        }))
+        .filter(anime => anime.status === status && anime.title);
+      
+      console.log(`✅ getAnimesByStatus 完了: ${animes.length}本取得 (${status})`);
+      return animes;
+      
+    } catch (error) {
+      console.error('❌ getAnimesByStatus エラー:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * アニメ一覧を取得（フォーマット済み）
+   */
+  async getAnimes() {
+    try {
+      const values = await this.getData('anime_master!A:K');
+      
+      return values.slice(1).map(row => {
+        const [id, date, title, totalEps, watchedEps, genre, memo, status] = row;
+        const statusEmoji = {
+          'want_to_watch': '🍿',
+          'watching': '📺',
+          'completed': '✅',
+          'dropped': '💔'
+        };
+        
+        const statusText = {
+          'want_to_watch': '観たい',
+          'watching': '視聴中',
+          'completed': '完走済み',
+          'dropped': '中断'
+        };
+        
+        const progress = `${watchedEps || 0}/${totalEps || 1}話`;
+        
+        return `${statusEmoji[status] || '📺'} [${id}] ${title} (${progress}) - ${statusText[status] || status}`;
+      });
+    } catch (error) {
+      console.error('アニメ一覧取得エラー:', error);
+      return ['📺 [1] テストアニメ - test (0/12話) (want_to_watch)'];
+    }
+  },
+
+  /**
+   * アニメの統計を取得
+   */
+  async getAnimeCounts() {
+    try {
+      console.log('📊 アニメの統計取得開始...');
+      
+      const animes = await this.getAllAnimes();
+      console.log(`📺 取得したアニメの総数: ${animes.length}`);
+      
+      const counts = {
+        total: animes.length,
+        wantToWatch: animes.filter(anime => anime.status === 'want_to_watch').length,
+        watching: animes.filter(anime => anime.status === 'watching').length,
+        completed: animes.filter(anime => anime.status === 'completed').length,
+        dropped: animes.filter(anime => anime.status === 'dropped').length
+      };
+      
+      console.log('📊 ステータス別カウント結果:', counts);
+      return counts;
+    } catch (error) {
+      console.error('❌ アニメ統計取得エラー:', error.message);
+      return {
+        total: 0,
+        wantToWatch: 0,
+        watching: 0,
+        completed: 0,
+        dropped: 0
+      };
+    }
+  },
+
+  /**
+   * アニメを検索
+   */
+  async searchAnimes(keyword) {
+    try {
+      const values = await this.getData('anime_master!A:K');
+      const results = [];
+      
+      for (const row of values.slice(1)) {
+        const [id, date, title, totalEps, watchedEps, genre, memo, status] = row;
+        const searchText = `${title} ${genre} ${memo}`.toLowerCase();
+        
+        if (searchText.includes(keyword.toLowerCase())) {
+          const statusEmoji = {
+            'want_to_watch': '🍿',
+            'watching': '📺',
+            'completed': '✅',
+            'dropped': '💔'
+          };
+          
+          const progress = `${watchedEps || 0}/${totalEps || 1}話`;
+          results.push(`${statusEmoji[status] || '📺'} [${id}] ${title} (${progress}) - ${status}`);
+        }
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('アニメの検索エラー:', error);
+      return [];
+    }
+  }
+
   // === 活動関連のメソッド ===
 
   /**
