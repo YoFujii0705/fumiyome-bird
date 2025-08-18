@@ -1078,6 +1078,141 @@ async getBookCounts() {
 
   // === 活動関連のメソッド ===
 
+/**
+   * 全ての活動を取得
+   */
+  async getAllActivities() {
+    try {
+      console.log('🎯 Activities データを取得中...');
+      
+      if (!this.auth) {
+        console.log('認証なし - 空の配列を返します');
+        return [];
+      }
+
+      const range = 'activities_master!A:F';
+      const operation = async () => {
+        const auth = await this.auth.getClient();
+        return this.sheets.spreadsheets.values.get({
+          auth,
+          spreadsheetId: this.spreadsheetId,
+          range: range,
+        });
+      };
+
+      const response = await this.executeWithTimeout(operation, 10000);
+      const rows = response.data.values;
+      
+      if (!rows || rows.length <= 1) {
+        console.log('🎯 Activitiesデータが見つかりません');
+        return [];
+      }
+
+      const headers = rows[0];
+      console.log('📋 Activities ヘッダー:', headers);
+      
+      const activities = [];
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0) continue;
+        
+        const activity = {
+          id: row[0] || '',           // A列: ID
+          registeredAt: row[1] || '', // B列: 登録日時
+          content: row[2] || '',      // C列: 活動内容
+          memo: row[3] || '',         // D列: 備考
+          status: row[4] || '',       // E列: ステータス
+          date: row[5] || ''          // F列: 日付
+        };
+        
+        if (activity.id && activity.id.toString().trim() !== '') {
+          activities.push(activity);
+        }
+      }
+
+      console.log(`✅ ${activities.length}件のActivitiesを取得しました`);
+      return activities;
+
+    } catch (error) {
+      console.error('❌ Activities取得エラー:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * IDで特定の活動を取得
+   */
+  async getActivityById(id) {
+    try {
+      console.log(`🎯 ID: ${id} の活動を検索中...`);
+      
+      const activities = await this.getAllActivities();
+      const activity = activities.find(activity => parseInt(activity.id) === parseInt(id));
+      
+      if (!activity) {
+        console.log(`❌ ID: ${id} の活動が見つかりません`);
+        return null;
+      }
+      
+      console.log(`✅ 活動が見つかりました: ${activity.content}`);
+      return {
+        id: parseInt(activity.id),
+        content: activity.content,
+        memo: activity.memo || '',
+        status: activity.status,
+        created_at: activity.registeredAt,
+        updated_at: activity.date
+      };
+    } catch (error) {
+      console.error('getActivityById エラー:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 特定ステータスの活動を取得するヘルパー
+   */
+  async getActivitiesByStatus(status) {
+    try {
+      console.log(`🎯 ステータス "${status}" の活動を取得中...`);
+      
+      const activities = await this.getAllActivities();
+      const filteredActivities = activities.filter(activity => activity.status === status);
+      
+      console.log(`✅ ステータス "${status}" の活動: ${filteredActivities.length}件`);
+      return filteredActivities;
+    } catch (error) {
+      console.error(`❌ ステータス "${status}" の活動取得エラー:`, error.message);
+      return [];
+    }
+  }
+
+  /**
+   * 予定中の活動を取得
+   */
+  async getPlannedActivities() {
+    try {
+      const plannedActivities = await this.getActivitiesByStatus('planned');
+      return plannedActivities.map(activity => `[${activity.id}] ${activity.content}`);
+    } catch (error) {
+      console.error('❌ 予定中活動取得エラー:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * 完了済み活動を取得
+   */
+  async getCompletedActivities() {
+    try {
+      const completedActivities = await this.getActivitiesByStatus('done');
+      return completedActivities.map(activity => `[${activity.id}] ${activity.content}`);
+    } catch (error) {
+      console.error('❌ 完了済み活動取得エラー:', error.message);
+      return [];
+    }
+  }
+  
   /**
    * 活動を追加
    */
