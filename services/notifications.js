@@ -2129,120 +2129,252 @@ calculateReadingAnalysisLocal(bookCounts, monthlyStats) {
   }
 
   async sendWeeklyArticleReminder() {
+  try {
+    const channel = this.getNotificationChannel();
+    if (!channel) return;
+
+    // 構造化データとして記事情報を取得
+    const [pendingArticles, recentlyRead] = await Promise.all([
+      this.googleSheets.getPendingArticleDetails?.() || [], // 詳細データを取得する新しいメソッド
+      this.googleSheets.getRecentlyReadArticles?.(7) || []
+    ]);
+
+    const embed = new EmbedBuilder()
+      .setTitle('📰 週次記事リマインダー')
+      .setDescription('読みたい記事の確認時間です！📚')
+      .setColor('#2196F3')
+      .setTimestamp();
+
+    if (pendingArticles.length > 0) {
+      // 優先度別に分類
+      const highPriorityArticles = pendingArticles.filter(article => 
+        article.priority === 'high').slice(0, 3);
+      const techArticles = pendingArticles.filter(article => 
+        article.category === 'tech').slice(0, 3);
+      const businessArticles = pendingArticles.filter(article => 
+        article.category === 'business').slice(0, 3);
+      const otherArticles = pendingArticles.filter(article => 
+        !['high'].includes(article.priority) && 
+        !['tech', 'business'].includes(article.category)).slice(0, 3);
+      
+      // 高優先度記事の表示（リンク付き）
+      if (highPriorityArticles.length > 0) {
+        const highPriorityText = highPriorityArticles.map(article => {
+          const link = article.url ? `[${article.title}](${article.url})` : article.title;
+          return `🔴 **[${article.id}]** ${link}`;
+        }).join('\n');
+        
+        embed.addFields({
+          name: '🔴 優先度の高い記事',
+          value: highPriorityText,
+          inline: false
+        });
+      }
+
+      // 技術記事の表示（リンク付き）
+      if (techArticles.length > 0) {
+        const techText = techArticles.map(article => {
+          const link = article.url ? `[${article.title}](${article.url})` : article.title;
+          return `💻 **[${article.id}]** ${link}`;
+        }).join('\n');
+        
+        embed.addFields({
+          name: '💻 技術記事',
+          value: techText,
+          inline: false
+        });
+      }
+
+      // ビジネス記事の表示（リンク付き）
+      if (businessArticles.length > 0) {
+        const businessText = businessArticles.map(article => {
+          const link = article.url ? `[${article.title}](${article.url})` : article.title;
+          return `💼 **[${article.id}]** ${link}`;
+        }).join('\n');
+        
+        embed.addFields({
+          name: '💼 ビジネス記事',
+          value: businessText,
+          inline: false
+        });
+      }
+
+      // その他の記事（人気・新着など）
+      if (otherArticles.length > 0) {
+        const otherText = otherArticles.map(article => {
+          const link = article.url ? `[${article.title}](${article.url})` : article.title;
+          const categoryEmoji = this.getCategoryEmoji(article.category);
+          return `${categoryEmoji} **[${article.id}]** ${link}`;
+        }).join('\n');
+        
+        embed.addFields({
+          name: '📄 その他のおすすめ記事',
+          value: otherText,
+          inline: false
+        });
+      }
+
+      // 統計情報
+      const totalPending = pendingArticles.length;
+      const estimatedReadingTime = totalPending * 5; // 1記事約5分と仮定
+      const avgRating = this.calculateAverageArticleRating(recentlyRead);
+      
+      embed.addFields(
+        { name: '📊 未読記事', value: `${totalPending}記事`, inline: true },
+        { name: '⏱️ 推定読書時間', value: `約${estimatedReadingTime}分`, inline: true },
+        { name: '📈 週間目標', value: '5記事読了', inline: true }
+      );
+
+      // 週末のおすすめ（ライフスタイル系記事）
+      const weekendRecommendations = pendingArticles
+        .filter(article => 
+          article.category === 'lifestyle' || 
+          article.category === 'general' ||
+          article.priority === 'low'
+        ).slice(0, 3);
+
+      if (weekendRecommendations.length > 0) {
+        const weekendText = weekendRecommendations.map(article => {
+          const link = article.url ? `[${article.title}](${article.url})` : article.title;
+          return `🌟 **[${article.id}]** ${link}`;
+        }).join('\n');
+        
+        embed.addFields({
+          name: '🌟 週末のリラックス記事',
+          value: weekendText,
+          inline: false
+        });
+      }
+
+      // 効率的な読書のコツ（改良版）
+      embed.addFields({
+        name: '💡 効率的な読書のコツ',
+        value: [
+          '📱 **通勤時間活用**: 移動中にスマホで短い記事を',
+          '🎯 **カテゴリ別まとめ読み**: 技術系は平日、ライフスタイル系は週末',
+          '📝 **重要ポイントメモ**: `/report article` で学びを記録',
+          '⭐ **評価で振り返り**: 読了後の評価で知識を定着',
+          '🔗 **関連記事探索**: 興味深い記事の著者や関連記事もチェック'
+        ].join('\n'),
+        inline: false
+      });
+
+    } else {
+      // 未読記事がない場合
+      embed.addFields({
+        name: '✨ 未読記事はありません',
+        value: '新しい記事を見つけたら `/article add [タイトル] [URL]` で追加してみましょう！',
+        inline: false
+      });
+      
+      // 記事探しのヒント
+      embed.addFields({
+        name: '🔍 新しい記事を見つけるヒント',
+        value: [
+          '📰 [Hacker News](https://news.ycombinator.com/) - 技術系記事の宝庫',
+          '💼 [Harvard Business Review](https://hbr.org/) - ビジネス洞察',
+          '🔬 [MIT Technology Review](https://www.technologyreview.com/) - 最新技術動向',
+          '🎯 興味のある分野のブログやメディアをチェック',
+          '🤝 同僚や友人からの記事シェア'
+        ].join('\n'),
+        inline: false
+      });
+    }
+
+    // 今週の読書実績
+    if (recentlyRead.length > 0) {
+      const recentText = recentlyRead.slice(0, 3).map(article => {
+        if (typeof article === 'object') {
+          const rating = article.rating ? '⭐'.repeat(article.rating) : '';
+          return `✅ ${article.title} ${rating}`;
+        }
+        return `✅ ${article}`;
+      }).join('\n');
+      
+      embed.addFields({
+        name: '🎉 今週の読書実績',
+        value: `${recentlyRead.length}記事を読了しました！\n${recentText}`,
+        inline: false
+      });
+
+      const weeklyLevel = this.calculateWeeklyReadingLevel(recentlyRead.length);
+      embed.addFields({
+        name: '📈 今週の読書レベル',
+        value: `${weeklyLevel.icon} ${weeklyLevel.name}\n${weeklyLevel.description}`,
+        inline: false
+      });
+    }
+
+    // クイックアクション（追加）
+    embed.addFields({
+      name: '⚡ クイックアクション',
+      value: [
+        '📖 **記事を読む**: 上記リンクをクリックして直接記事へ',
+        '✅ **読了記録**: `/article read [ID] [評価1-5]`',
+        '➕ **新記事追加**: `/article add [タイトル] [URL]`',
+        '📝 **感想記録**: `/report article [ID] [感想]`',
+        '📋 **全記事確認**: `/article pending`'
+      ].join('\n'),
+      inline: false
+    });
+
+    embed.setFooter({ text: '継続的な学習で知識を深めていきましょう！' });
+
+    await channel.send({ embeds: [embed] });
+    console.log('📰 改良版週次記事リマインダーを送信しました');
+
+  } catch (error) {
+    console.error('週次記事リマインダー送信エラー:', error);
+    
+    // エラー時のフォールバック通知
     try {
       const channel = this.getNotificationChannel();
-      if (!channel) return;
-
-      const [pendingArticles, recentlyRead] = await Promise.all([
-        this.googleSheets.getPendingArticles?.() || [],
-        this.googleSheets.getRecentlyReadArticles?.(7) || []
-      ]);
-
-      const embed = new EmbedBuilder()
-        .setTitle('📰 週次記事リマインダー')
-        .setDescription('読みたい記事の確認時間です！📚')
-        .setColor('#2196F3')
-        .setTimestamp();
-
-      if (pendingArticles.length > 0) {
-        const highPriorityArticles = pendingArticles.filter(article => 
-          article.includes('高') || article.includes('urgent')).slice(0, 3);
-        const techArticles = pendingArticles.filter(article => 
-          article.includes('tech') || article.includes('技術')).slice(0, 3);
-        const businessArticles = pendingArticles.filter(article => 
-          article.includes('business') || article.includes('ビジネス')).slice(0, 3);
-        
-        if (highPriorityArticles.length > 0) {
-          embed.addFields({
-            name: '🔴 優先度の高い記事',
-            value: highPriorityArticles.join('\n'),
-            inline: false
-          });
-        }
-
-        if (techArticles.length > 0) {
-          embed.addFields({
-            name: '💻 技術記事',
-            value: techArticles.join('\n'),
-            inline: false
-          });
-        }
-
-        if (businessArticles.length > 0) {
-          embed.addFields({
-            name: '💼 ビジネス記事',
-            value: businessArticles.join('\n'),
-            inline: false
-          });
-        }
-
-        const totalPending = pendingArticles.length;
-        const estimatedReadingTime = totalPending * 5;
-        
-        embed.addFields(
-          { name: '📊 未読記事', value: `${totalPending}記事`, inline: true },
-          { name: '⏱️ 推定読書時間', value: `約${estimatedReadingTime}分`, inline: true }
-        );
-
-        const weekendRecommendations = pendingArticles
-          .filter(article => 
-            article.includes('lifestyle') || 
-            article.includes('general') ||
-            article.includes('ライフスタイル')
-          ).slice(0, 3);
-
-        if (weekendRecommendations.length > 0) {
-          embed.addFields({
-            name: '🌟 週末のおすすめ記事',
-            value: weekendRecommendations.join('\n'),
-            inline: false
-          });
-        }
-
-        embed.addFields({
-          name: '💡 効率的な読書のコツ',
-          value: [
-            '📱 移動時間を活用しよう',
-            '🎯 カテゴリごとにまとめ読み',
-            '📝 重要なポイントはメモに',
-            '⭐ 読了後は評価をつけよう'
-          ].join('\n'),
-          inline: false
-        });
-
-      } else {
-        embed.addFields({
-          name: '✨ 未読記事はありません',
-          value: '新しい記事を見つけたら `/article add` で追加してみましょう！',
-          inline: false
+      if (channel) {
+        await channel.send({
+          content: '📰 週次記事リマインダー\n\n記事データの取得中にエラーが発生しました。\n`/article pending` で未読記事を確認してください。'
         });
       }
-
-      if (recentlyRead.length > 0) {
-        embed.addFields({
-          name: '🎉 今週の読書実績',
-          value: `${recentlyRead.length}記事を読了しました！\n${recentlyRead.slice(0, 3).join('\n')}`,
-          inline: false
-        });
-
-        const weeklyLevel = this.calculateWeeklyReadingLevel(recentlyRead.length);
-        embed.addFields({
-          name: '📈 今週の読書レベル',
-          value: `${weeklyLevel.icon} ${weeklyLevel.name}\n${weeklyLevel.description}`,
-          inline: false
-        });
-      }
-
-      embed.setFooter({ text: '継続的な学習で知識を深めていきましょう！' });
-
-      await channel.send({ embeds: [embed] });
-      console.log('📰 週次記事リマインダーを送信しました');
-
-    } catch (error) {
-      console.error('週次記事リマインダー送信エラー:', error);
+    } catch (fallbackError) {
+      console.error('フォールバック通知エラー:', fallbackError);
     }
   }
+}
 
+// 記事カテゴリの絵文字を取得するヘルパーメソッド
+getCategoryEmoji(category) {
+  const emojis = {
+    'tech': '💻',
+    'business': '💼', 
+    'lifestyle': '🌟',
+    'news': '📰',
+    'academic': '🎓',
+    'general': '📄',
+    'health': '🏥',
+    'finance': '💰',
+    'science': '🔬',
+    'entertainment': '🎬'
+  };
+  return emojis[category] || '📄';
+}
+
+// 記事の平均評価を計算
+calculateAverageArticleRating(readArticles) {
+  if (!readArticles || readArticles.length === 0) return null;
+  
+  const ratings = readArticles
+    .map(article => {
+      if (typeof article === 'object' && article.rating) {
+        return article.rating;
+      }
+      // 文字列の場合、⭐の数から評価を推定
+      const ratingMatch = article.match?.(/⭐{1,5}/);
+      return ratingMatch ? ratingMatch[0].length : null;
+    })
+    .filter(rating => rating !== null);
+  
+  return ratings.length > 0 ? (ratings.reduce((a, b) => a + b) / ratings.length).toFixed(1) : null;
+}
+  
   async sendMonthlySummaryReport() {
     try {
       const channel = this.getNotificationChannel();
