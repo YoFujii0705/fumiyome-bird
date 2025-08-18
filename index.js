@@ -124,6 +124,10 @@ client.on('interactionCreate', async interaction => {
       else if (interaction.customId.startsWith('activity_')) {
         await handleActivitySelection(interaction);
       }
+        // アニメ関連の選択メニュー処理
+     else if (interaction.customId.startsWith('anime_')) {
+     await handleAnimeSelection(interaction);
+       }
       // 🆕 レポート関連の選択メニュー処理
       else if (interaction.customId.startsWith('report_')) {
         await handleReportSelection(interaction);
@@ -159,6 +163,10 @@ client.on('interactionCreate', async interaction => {
       else if (interaction.customId.startsWith('activity_')) {
         await handleActivityPagination(interaction);
       }
+        // アニメのページネーション処理
+      else if (interaction.customId.startsWith('anime_')) {
+　　　  await handleAnimePagination(interaction);
+　　　　}
       // 🆕 レポート・レポート履歴のページネーション処理
       else if (interaction.customId.startsWith('report_') || interaction.customId.startsWith('reports_')) {
         await handleReportPagination(interaction);
@@ -590,6 +598,613 @@ async function handleBookSelection(interaction) {
     }
   }
 }
+
+/**
+ * アニメの選択メニュー処理
+ */
+async function handleAnimeSelection(interaction) {
+  try {
+    const selectedAnimeId = interaction.values[0];
+    const customId = interaction.customId;
+    
+    console.log(`📺 アニメ選択処理開始: ${customId}, ID: ${selectedAnimeId}`);
+    
+    // GoogleSheetsサービスの状態確認
+    if (!googleSheets || !googleSheets.auth) {
+      console.error('❌ GoogleSheetsサービスが利用できません');
+      await interaction.editReply({ 
+        content: '❌ データベース接続に問題があります。しばらく待ってから再試行してください。', 
+        components: [] 
+      });
+      return;
+    }
+
+    // タイムアウト設定（30秒）
+    const timeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('処理がタイムアウトしました')), 30000)
+    );
+
+    // 📺 話数を視聴
+    if (customId.startsWith('anime_watch_select')) {
+      console.log('📺 話数視聴処理開始');
+      
+      const watchPromise = googleSheets.watchNextEpisode(selectedAnimeId);
+      const watchedAnime = await Promise.race([watchPromise, timeout]);
+      
+      if (watchedAnime) {
+        const anime = await googleSheets.getAnimeById(selectedAnimeId);
+        const isCompleted = anime && anime.watched_episodes >= anime.total_episodes;
+        
+        const embed = new EmbedBuilder()
+          .setTitle(isCompleted ? '🎉 アニメ完走！' : '📺 話数視聴記録！')
+          .setColor(isCompleted ? '#FFD700' : '#2196F3')
+          .setDescription(isCompleted ? '素晴らしい！アニメを完走しました！🎉✨' : '新しい話数を視聴しました！📺✨')
+          .addFields(
+            { name: 'ID', value: watchedAnime.id.toString(), inline: true },
+            { name: 'タイトル', value: watchedAnime.title, inline: true },
+            { name: '進捗', value: `${watchedAnime.watched_episodes}/${watchedAnime.total_episodes}話`, inline: true }
+          )
+          .setTimestamp();
+
+        if (isCompleted) {
+          embed.addFields({ name: 'ステータス変更', value: '📺 視聴中 → ✅ 完走済み', inline: false });
+          embed.setFooter({ text: '感想を /report anime で記録してみませんか？' });
+        } else {
+          embed.setFooter({ text: '次の話数も /anime watch で記録できます' });
+        }
+        
+        console.log('✅ 話数視聴完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 話数視聴失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定されたアニメが見つからないか、既に全話視聴済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🚀 視聴開始
+    else if (customId.startsWith('anime_start_select')) {
+      console.log('🚀 視聴開始処理開始');
+      
+      const startPromise = googleSheets.startWatchingAnime(selectedAnimeId);
+      const startedAnime = await Promise.race([startPromise, timeout]);
+      
+      if (startedAnime) {
+        const embed = new EmbedBuilder()
+          .setTitle('🚀 アニメ視聴開始！')
+          .setColor('#FF9800')
+          .setDescription('素晴らしい！新しいアニメの視聴が始まりますね！📺✨')
+          .addFields(
+            { name: 'ID', value: startedAnime.id.toString(), inline: true },
+            { name: 'タイトル', value: startedAnime.title, inline: true },
+            { name: '総話数', value: `${startedAnime.total_episodes}話`, inline: true },
+            { name: 'ステータス変更', value: '🍿 観たい → 📺 視聴中', inline: false }
+          )
+          .setFooter({ text: '話数を視聴したら /anime watch で記録しましょう！' })
+          .setTimestamp();
+        
+        if (startedAnime.memo) {
+          embed.addFields({ name: '備考', value: startedAnime.memo, inline: false });
+        }
+        
+        console.log('✅ 視聴開始完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 視聴開始失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定されたアニメが見つからないか、既に視聴開始済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🎉 完走記録
+    else if (customId.startsWith('anime_finish_select')) {
+      console.log('🎉 完走処理開始');
+      
+      const finishPromise = googleSheets.completeAnime(selectedAnimeId);
+      const finishedAnime = await Promise.race([finishPromise, timeout]);
+      
+      if (finishedAnime) {
+        const embed = new EmbedBuilder()
+          .setTitle('🎉 アニメ完走おめでとうございます！')
+          .setColor('#FFD700')
+          .setDescription('素晴らしい達成感ですね！また一つ素晴らしい作品を完走されました📺✨')
+          .addFields(
+            { name: 'ID', value: finishedAnime.id.toString(), inline: true },
+            { name: 'タイトル', value: finishedAnime.title, inline: true },
+            { name: '総話数', value: `${finishedAnime.total_episodes}話`, inline: true },
+            { name: 'ステータス変更', value: '📺 視聴中 → ✅ 完走済み', inline: false }
+          )
+          .setFooter({ text: '感想を /report anime で記録してみませんか？' })
+          .setTimestamp();
+        
+        if (finishedAnime.memo) {
+          embed.addFields({ name: '備考', value: finishedAnime.memo, inline: false });
+        }
+        
+        console.log('✅ 完走記録完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 完走記録失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定されたアニメが見つからないか、既に完走済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 💔 視聴中断
+    else if (customId.startsWith('anime_drop_select')) {
+      console.log('💔 視聴中断処理開始');
+      
+      const dropPromise = googleSheets.dropAnime(selectedAnimeId);
+      const droppedAnime = await Promise.race([dropPromise, timeout]);
+      
+      if (droppedAnime) {
+        const embed = new EmbedBuilder()
+          .setTitle('💔 アニメ視聴を中断しました')
+          .setColor('#FF9800')
+          .setDescription('大丈夫です！時には見送ることも必要ですね。また機会があればチャレンジしてみてください。')
+          .addFields(
+            { name: 'ID', value: droppedAnime.id.toString(), inline: true },
+            { name: 'タイトル', value: droppedAnime.title, inline: true },
+            { name: 'ステータス変更', value: '📺 視聴中 → 💔 中断', inline: false }
+          )
+          .setFooter({ text: '新しいアニメを探してみましょう！' })
+          .setTimestamp();
+        
+        if (droppedAnime.memo) {
+          embed.addFields({ name: '備考', value: droppedAnime.memo, inline: false });
+        }
+        
+        console.log('✅ 視聴中断完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 視聴中断失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定されたアニメが見つからないか、既に処理済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 📊 進捗表示
+    else if (customId.startsWith('anime_progress_select')) {
+      console.log('📊 進捗表示処理開始');
+      
+      const progressPromise = googleSheets.getAnimeById(selectedAnimeId);
+      const animeInfo = await Promise.race([progressPromise, timeout]);
+      
+      if (animeInfo) {
+        const percentage = Math.round((animeInfo.watched_episodes / animeInfo.total_episodes) * 100);
+        const progressBar = getProgressBar(animeInfo.watched_episodes, animeInfo.total_episodes);
+        
+        const statusText = {
+          'want_to_watch': '🍿 観たい',
+          'watching': '📺 視聴中',
+          'completed': '✅ 完走済み',
+          'dropped': '💔 中断'
+        };
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📊 アニメ視聴進捗')
+          .setColor('#3F51B5')
+          .setDescription(`📺 ${animeInfo.title}`)
+          .addFields(
+            { name: 'ID', value: animeInfo.id.toString(), inline: true },
+            { name: 'ステータス', value: statusText[animeInfo.status] || animeInfo.status, inline: true },
+            { name: 'ジャンル', value: getGenreText(animeInfo.genre), inline: true },
+            { name: '進捗', value: `${animeInfo.watched_episodes} / ${animeInfo.total_episodes}話`, inline: true },
+            { name: '進捗率', value: `${percentage}%`, inline: true },
+            { name: '進捗バー', value: progressBar, inline: false }
+          )
+          .setTimestamp();
+        
+        // 日付情報がある場合のみ追加
+        if (animeInfo.start_date && animeInfo.start_date.trim() !== '') {
+          embed.addFields({ name: '視聴開始日', value: animeInfo.start_date, inline: true });
+        }
+        if (animeInfo.finish_date && animeInfo.finish_date.trim() !== '') {
+          embed.addFields({ name: '完走日', value: animeInfo.finish_date, inline: true });
+        }
+        
+        if (animeInfo.memo && animeInfo.memo.trim() !== '') {
+          embed.addFields({ name: '備考', value: animeInfo.memo, inline: false });
+        }
+        
+        // ステータスに応じたアクションヒント
+        let actionHint = '';
+        switch (animeInfo.status) {
+          case 'want_to_watch':
+            actionHint = '視聴開始: /anime start（選択式）';
+            break;
+          case 'watching':
+            actionHint = '話数記録: /anime watch | 完走記録: /anime finish（選択式）';
+            break;
+          case 'completed':
+            actionHint = '感想記録: /report anime（選択式）';
+            break;
+          case 'dropped':
+            actionHint = '再チャレンジしたい場合は新しく追加してください';
+            break;
+        }
+        
+        if (actionHint) {
+          embed.setFooter({ text: actionHint });
+        }
+        
+        console.log('✅ 進捗表示完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+        
+      } else {
+        console.log('❌ アニメが見つからない');
+        await interaction.editReply({ 
+          content: '❌ 指定されたアニメの進捗情報が見つかりません。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 📄 詳細情報表示
+    else if (customId.startsWith('anime_info_select')) {
+      console.log('📄 詳細情報取得開始');
+      
+      const infoPromise = googleSheets.getAnimeById(selectedAnimeId);
+      const animeInfo = await Promise.race([infoPromise, timeout]);
+      
+      console.log('📺 取得したアニメ情報:', animeInfo);
+      
+      if (animeInfo) {
+        const statusText = {
+          'want_to_watch': '🍿 観たい',
+          'watching': '📺 視聴中',
+          'completed': '✅ 完走済み',
+          'dropped': '💔 中断'
+        };
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📄 アニメの詳細情報')
+          .setColor('#3F51B5')
+          .setDescription(`📺 ${animeInfo.title}`)
+          .addFields(
+            { name: 'ID', value: animeInfo.id.toString(), inline: true },
+            { name: 'ステータス', value: statusText[animeInfo.status] || animeInfo.status, inline: true },
+            { name: 'ジャンル', value: getGenreText(animeInfo.genre), inline: true },
+            { name: '総話数', value: `${animeInfo.total_episodes}話`, inline: true },
+            { name: '視聴済み', value: `${animeInfo.watched_episodes}話`, inline: true },
+            { name: '進捗率', value: `${Math.round((animeInfo.watched_episodes / animeInfo.total_episodes) * 100)}%`, inline: true }
+          )
+          .setTimestamp();
+        
+        // 日付情報がある場合のみ追加
+        if (animeInfo.created_at && animeInfo.created_at.trim() !== '') {
+          embed.addFields({ name: '登録日', value: animeInfo.created_at, inline: true });
+        }
+        if (animeInfo.start_date && animeInfo.start_date.trim() !== '') {
+          embed.addFields({ name: '視聴開始日', value: animeInfo.start_date, inline: true });
+        }
+        if (animeInfo.finish_date && animeInfo.finish_date.trim() !== '') {
+          embed.addFields({ name: '完走日', value: animeInfo.finish_date, inline: true });
+        }
+        
+        if (animeInfo.memo && animeInfo.memo.trim() !== '') {
+          embed.addFields({ name: '備考', value: animeInfo.memo, inline: false });
+        }
+        
+        // ステータスに応じたアクションヒント
+        let actionHint = '';
+        switch (animeInfo.status) {
+          case 'want_to_watch':
+            actionHint = '視聴開始: /anime start（選択式）';
+            break;
+          case 'watching':
+            actionHint = '話数記録: /anime watch | 完走記録: /anime finish（選択式）';
+            break;
+          case 'completed':
+            actionHint = '感想記録: /report anime（選択式）';
+            break;
+          case 'dropped':
+            actionHint = '再チャレンジしたい場合は新しく追加してください';
+            break;
+        }
+        
+        if (actionHint) {
+          embed.setFooter({ text: actionHint });
+        }
+        
+        console.log('✅ 詳細情報表示完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+        
+      } else {
+        console.log('❌ アニメが見つからない');
+        await interaction.editReply({ 
+          content: '❌ 指定されたアニメの詳細情報が見つかりません。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 📝 視聴ログ表示
+    else if (customId.startsWith('anime_log_select')) {
+      console.log('📝 視聴ログ取得開始');
+      
+      const logPromise = googleSheets.getAnimeEpisodeLogs(selectedAnimeId);
+      const animeInfoPromise = googleSheets.getAnimeById(selectedAnimeId);
+      
+      const [logs, animeInfo] = await Promise.all([
+        Promise.race([logPromise, timeout]),
+        Promise.race([animeInfoPromise, timeout])
+      ]);
+      
+      if (animeInfo) {
+        const embed = new EmbedBuilder()
+          .setTitle('📝 アニメ視聴ログ')
+          .setColor('#795548')
+          .setDescription(`📺 ${animeInfo.title}`)
+          .addFields(
+            { name: 'ID', value: animeInfo.id.toString(), inline: true },
+            { name: '総話数', value: `${animeInfo.total_episodes}話`, inline: true },
+            { name: '視聴済み', value: `${animeInfo.watched_episodes}話`, inline: true }
+          )
+          .setTimestamp();
+        
+        if (logs && logs.length > 0) {
+          const logText = logs.slice(0, 10).map(log => {
+            const ratingText = log.rating ? ` ⭐${log.rating}` : '';
+            const notesText = log.notes ? ` - ${log.notes}` : '';
+            return `第${log.episodeNumber}話 (${log.watchedDate})${ratingText}${notesText}`;
+          }).join('\n');
+          
+          embed.addFields({
+            name: `📝 視聴ログ (${logs.length}件)`,
+            value: logText.slice(0, 1024),
+            inline: false
+          });
+          
+          if (logs.length > 10) {
+            embed.addFields({ name: '📋 その他', value: `... 他${logs.length - 10}件のログ`, inline: false });
+          }
+        } else {
+          embed.addFields({
+            name: '📝 視聴ログ',
+            value: 'まだ視聴ログがありません',
+            inline: false
+          });
+        }
+        
+        embed.setFooter({ text: '話数を視聴すると自動的にログが記録されます' });
+        
+        console.log('✅ 視聴ログ表示完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+        
+      } else {
+        console.log('❌ アニメが見つからない');
+        await interaction.editReply({ 
+          content: '❌ 指定されたアニメの視聴ログが見つかりません。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🔄 ページネーション処理
+    else if (customId.includes('_page_')) {
+      console.log('📄 ページネーション処理');
+      
+      const parts = customId.split('_');
+      const action = parts[1]; // watch, start, finish, drop, progress, info, log
+      const page = parseInt(parts[parts.length - 1]);
+      
+      console.log(`ページネーション: ${action}, ページ: ${page}`);
+      
+      // 各アクションに応じたデータを取得
+      let animes = [];
+      switch (action) {
+        case 'watch':
+        case 'finish':
+        case 'drop':
+          animes = await Promise.race([googleSheets.getAnimesByStatus('watching'), timeout]);
+          break;
+        case 'start':
+          animes = await Promise.race([googleSheets.getAnimesByStatus('want_to_watch'), timeout]);
+          break;
+        case 'progress':
+        case 'info':
+        case 'log':
+          animes = await Promise.race([googleSheets.getAllAnimes(), timeout]);
+          break;
+      }
+      
+      if (animes && animes.length > 0) {
+        const animeHandler = require('./handlers/animeHandler');
+        
+        switch (action) {
+          case 'watch':
+            await animeHandler.handleWatchWithPagination(interaction, animes, page);
+            break;
+          case 'start':
+            await animeHandler.handleStartWithPagination(interaction, animes, page);
+            break;
+          case 'finish':
+            await animeHandler.handleFinishWithPagination(interaction, animes, page);
+            break;
+          case 'drop':
+            await animeHandler.handleDropWithPagination(interaction, animes, page);
+            break;
+          case 'progress':
+            await animeHandler.handleProgressWithPagination(interaction, animes, page);
+            break;
+          case 'info':
+            await animeHandler.handleInfoWithPagination(interaction, animes, page);
+            break;
+          case 'log':
+            await animeHandler.handleLogWithPagination(interaction, animes, page);
+            break;
+        }
+      } else {
+        await interaction.editReply({ 
+          content: '❌ データの取得に失敗しました。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🔄 その他の処理
+    else {
+      console.log('❓ 不明な選択処理:', customId);
+      await interaction.editReply({ 
+        content: '❌ 不明な操作です。', 
+        components: [] 
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ handleAnimeSelection エラー:', error);
+    console.error('❌ エラーメッセージ:', error.message);
+    console.error('❌ エラースタック:', error.stack);
+    
+    // エラーの種類に応じたメッセージ
+    let errorMessage = '❌ アニメの選択処理中にエラーが発生しました。';
+    
+    if (error.message.includes('タイムアウト')) {
+      errorMessage = '❌ 処理がタイムアウトしました。ネットワーク接続を確認してください。';
+    } else if (error.message.includes('認証')) {
+      errorMessage = '❌ データベース認証エラーです。管理者に連絡してください。';
+    } else if (error.message.includes('権限')) {
+      errorMessage = '❌ データベースアクセス権限がありません。管理者に連絡してください。';
+    }
+    
+    try {
+      await interaction.editReply({ 
+        content: errorMessage + '\n\n🔧 詳細: ' + error.message, 
+        components: [] 
+      });
+    } catch (replyError) {
+      console.error('❌ エラー応答送信失敗:', replyError);
+      
+      // 最後の手段として、新しい応答を試行
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ 
+            content: errorMessage, 
+            ephemeral: true 
+          });
+        }
+      } catch (finalError) {
+        console.error('❌ 最終エラー応答も失敗:', finalError);
+      }
+    }
+  }
+}
+
+/**
+ * アニメのページネーション処理
+ */
+async function handleAnimePagination(interaction) {
+  const customId = interaction.customId;
+  
+  if (customId.includes('anime_watch_')) {
+    const page = parseInt(customId.split('_').pop());
+    const watchingAnimes = await googleSheets.getAnimesByStatus('watching');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const animeHandler = require('./handlers/animeHandler');
+      await animeHandler.handleWatchWithPagination(interaction, watchingAnimes, page);
+    }
+  }
+  
+  else if (customId.includes('anime_start_')) {
+    const page = parseInt(customId.split('_').pop());
+    const wantToWatchAnimes = await googleSheets.getAnimesByStatus('want_to_watch');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const animeHandler = require('./handlers/animeHandler');
+      await animeHandler.handleStartWithPagination(interaction, wantToWatchAnimes, page);
+    }
+  }
+  
+  else if (customId.includes('anime_finish_')) {
+    const page = parseInt(customId.split('_').pop());
+    const watchingAnimes = await googleSheets.getAnimesByStatus('watching');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const animeHandler = require('./handlers/animeHandler');
+      await animeHandler.handleFinishWithPagination(interaction, watchingAnimes, page);
+    }
+  }
+  
+  else if (customId.includes('anime_drop_')) {
+    const page = parseInt(customId.split('_').pop());
+    const watchingAnimes = await googleSheets.getAnimesByStatus('watching');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const animeHandler = require('./handlers/animeHandler');
+      await animeHandler.handleDropWithPagination(interaction, watchingAnimes, page);
+    }
+  }
+  
+  else if (customId.includes('anime_progress_')) {
+    const page = parseInt(customId.split('_').pop());
+    const allAnimes = await googleSheets.getAllAnimes();
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const animeHandler = require('./handlers/animeHandler');
+      await animeHandler.handleProgressWithPagination(interaction, allAnimes, page);
+    }
+  }
+  
+  else if (customId.includes('anime_info_')) {
+    const page = parseInt(customId.split('_').pop());
+    const allAnimes = await googleSheets.getAllAnimes();
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const animeHandler = require('./handlers/animeHandler');
+      await animeHandler.handleInfoWithPagination(interaction, allAnimes, page);
+    }
+  }
+  
+  else if (customId.includes('anime_log_')) {
+    const page = parseInt(customId.split('_').pop());
+    const allAnimes = await googleSheets.getAllAnimes();
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const animeHandler = require('./handlers/animeHandler');
+      await animeHandler.handleLogWithPagination(interaction, allAnimes, page);
+    }
+  }
+}
+
+// ヘルパー関数
+function getProgressBar(watched, total) {
+  if (total === 0) return '━━━━━━━━━━ 0%';
+  
+  const percentage = Math.round((watched / total) * 100);
+  const filledBars = Math.round((watched / total) * 10);
+  const emptyBars = 10 - filledBars;
+  
+  return '█'.repeat(filledBars) + '░'.repeat(emptyBars) + ` ${percentage}%`;
+}
+
+function getGenreText(genre) {
+  const genres = {
+    'action': 'アクション',
+    'adventure': 'アドベンチャー',
+    'comedy': 'コメディ',
+    'drama': 'ドラマ',
+    'fantasy': 'ファンタジー',
+    'horror': 'ホラー',
+    'mystery': 'ミステリー',
+    'romance': 'ロマンス',
+    'sci-fi': 'SF',
+    'sports': 'スポーツ',
+    'thriller': 'スリラー',
+    'other': 'その他'
+  };
+  return genres[genre] || genre;
+}
+
 // 🆕 映画の選択メニュー処理
 async function handleMovieSelection(interaction) {
   const selectedMovieId = interaction.values[0];
