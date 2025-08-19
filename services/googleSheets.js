@@ -833,6 +833,10 @@ async getBookCounts() {
     }
   }
 
+// GoogleSheetsServiceに追加するメソッド
+
+// GoogleSheetsServiceに追加するメソッド
+
 /**
  * 記事の詳細情報を含む未読記事リストを取得
  */
@@ -849,7 +853,7 @@ async getPendingArticleDetails() {
     // 記事シートのデータを取得
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: 'articles!A:K', // ID, title, url, priority, category, status, rating, review, memo, created_at, updated_at
+      range: 'articles_master!A:K', // articles_masterシートに変更
     });
 
     const rows = response.data.values || [];
@@ -863,24 +867,59 @@ async getPendingArticleDetails() {
     
     console.log('📊 記事データヘッダー:', headers);
     console.log('📊 記事データ行数:', dataRows.length);
+    
+    // 最初の数行をデバッグ表示
+    if (dataRows.length > 0) {
+      console.log('🔍 記事データサンプル:', dataRows.slice(0, 3).map((row, index) => ({
+        rowIndex: index + 2,
+        A_ID: row[0],
+        B_Created_At: row[1], 
+        C_Title: row[2],
+        D_URL: row[3],
+        E_Category: row[4],
+        F_Priority: row[5],
+        G_Memo: row[6],
+        H_Status: row[7],
+        I_Rating: row[8],
+        J_Review: row[9],
+        K_Updated_At: row[10]
+      })));
+    }
 
     // 未読記事のみフィルタリングして構造化
     const pendingArticles = dataRows
       .map((row, index) => {
         try {
+          // URLのクリーニング処理を追加（D列 = インデックス3）
+          let url = row[3] || null;
+          if (url) {
+            url = url.trim();
+            // 空文字列、"null", "undefined"の場合はnullに設定
+            if (url === '' || url.toLowerCase() === 'null' || url.toLowerCase() === 'undefined') {
+              url = null;
+            }
+            // httpまたはhttpsで始まらない場合はhttpsを追加
+            else if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+              url = 'https://' + url;
+            }
+          }
+          
           const article = {
-            id: parseInt(row[0]) || (index + 1),
-            title: row[1] || 'タイトルなし',
-            url: row[2] || null,
-            priority: row[3] || 'medium',
-            category: row[4] || 'general',
-            status: row[5] || 'want_to_read',
-            rating: row[6] ? parseInt(row[6]) : null,
-            review: row[7] || null,
-            memo: row[8] || null,
-            created_at: row[9] || null,
-            updated_at: row[10] || null
+            id: parseInt(row[0]) || (index + 1),           // A列: ID
+            created_at: row[1] || null,                    // B列: Created_At
+            title: row[2] || 'タイトルなし',                // C列: Title
+            url: url,                                      // D列: URL
+            category: row[4] || 'general',                 // E列: Category
+            priority: row[5] || 'medium',                  // F列: Priority
+            memo: row[6] || null,                          // G列: Memo
+            status: row[7] || 'want_to_read',             // H列: Status
+            rating: row[8] ? parseInt(row[8]) : null,     // I列: Rating
+            review: row[9] || null,                        // J列: Review
+            updated_at: row[10] || null                    // K列: Updated_At
           };
+          
+          // デバッグ: 各記事のURL状況をログ出力
+          console.log(`📋 記事 [${article.id}]: "${article.title}" - URL: "${article.url}" (元D列: "${row[3]}")`);
           
           return article;
         } catch (error) {
@@ -989,7 +1028,7 @@ async getRecentlyReadArticleDetails(days = 7) {
     
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: 'articles!A:K',
+      range: 'articles_master!A:K',
     });
 
     const rows = response.data.values || [];
@@ -1007,17 +1046,17 @@ async getRecentlyReadArticleDetails(days = 7) {
       .map((row, index) => {
         try {
           const article = {
-            id: parseInt(row[0]) || (index + 1),
-            title: row[1] || 'タイトルなし',
-            url: row[2] || null,
-            priority: row[3] || 'medium',
-            category: row[4] || 'general',
-            status: row[5] || 'want_to_read',
-            rating: row[6] ? parseInt(row[6]) : null,
-            review: row[7] || null,
-            memo: row[8] || null,
-            created_at: row[9] || null,
-            updated_at: row[10] || null
+            id: parseInt(row[0]) || (index + 1),           // A列: ID
+            created_at: row[1] || null,                    // B列: Created_At
+            title: row[2] || 'タイトルなし',                // C列: Title
+            url: row[3] || null,                           // D列: URL
+            category: row[4] || 'general',                 // E列: Category
+            priority: row[5] || 'medium',                  // F列: Priority
+            memo: row[6] || null,                          // G列: Memo
+            status: row[7] || 'want_to_read',             // H列: Status
+            rating: row[8] ? parseInt(row[8]) : null,     // I列: Rating
+            review: row[9] || null,                        // J列: Review
+            updated_at: row[10] || null                    // K列: Updated_At
           };
           
           return article;
@@ -1087,7 +1126,7 @@ async getArticleInfo(articleId) {
     
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: 'articles!A:K',
+      range: 'articles_master!A:K',
     });
 
     const rows = response.data.values || [];
@@ -1107,17 +1146,17 @@ async getArticleInfo(articleId) {
     }
     
     const article = {
-      id: parseInt(articleRow[0]),
-      title: articleRow[1] || 'タイトルなし',
-      url: articleRow[2] || null,
-      priority: articleRow[3] || 'medium',
-      category: articleRow[4] || 'general',
-      status: articleRow[5] || 'want_to_read',
-      rating: articleRow[6] ? parseInt(articleRow[6]) : null,
-      review: articleRow[7] || null,
-      memo: articleRow[8] || null,
-      created_at: articleRow[9] || null,
-      updated_at: articleRow[10] || null
+      id: parseInt(articleRow[0]),                        // A列: ID
+      created_at: articleRow[1] || null,                  // B列: Created_At
+      title: articleRow[2] || 'タイトルなし',              // C列: Title
+      url: articleRow[3] || null,                         // D列: URL
+      category: articleRow[4] || 'general',               // E列: Category
+      priority: articleRow[5] || 'medium',                // F列: Priority
+      memo: articleRow[6] || null,                        // G列: Memo
+      status: articleRow[7] || 'want_to_read',           // H列: Status
+      rating: articleRow[8] ? parseInt(articleRow[8]) : null, // I列: Rating
+      review: articleRow[9] || null,                      // J列: Review
+      updated_at: articleRow[10] || null                  // K列: Updated_At
     };
     
     console.log(`✅ 記事詳細を取得: ${article.title}`);
@@ -3265,196 +3304,334 @@ async getMonthlyStats() {
   // === 記事リスト関連メソッド ===
 
   /**
-   * 記事追加（認証修正版）
-   */
-  async addArticle(title, url, priority, category, memo) {
+ * 記事を追加
+ */
+async addArticle(title, url, priority = 'medium', category = 'general', memo = '') {
+  try {
+    console.log('📝 記事追加:', { title, url, priority, category, memo });
+    
     if (!this.auth) {
-      console.log('認証なし - ダミーIDを返します');
-      return Math.floor(Math.random() * 1000);
+      throw new Error('Google Sheets認証が設定されていません');
     }
 
-    try {
-      const timestamp = new Date().toISOString();
-      const id = await this.getNextId('articles_master');
-      
-      const values = [
-        [id, timestamp, title, url, category || 'general', priority || 'medium', memo || '', 'want_to_read', '', '', timestamp]
-      ];
-      
-      const operation = async () => {
-        const auth = await this.auth.getClient();
-        return this.sheets.spreadsheets.values.append({
-          auth,
-          spreadsheetId: this.spreadsheetId,
-          range: 'articles_master!A:K',
-          valueInputOption: 'USER_ENTERED',
-          resource: { values }
-        });
-      };
-      
-      await this.executeWithTimeout(operation, 15000);
-      console.log('✅ 記事追加成功:', id);
-      return id;
-      
-    } catch (error) {
-      console.error('記事追加エラー:', error.message);
-      
-      if (error.message.includes("Unable to parse range")) {
-        throw new Error(`シート "articles_master" が存在しません。Google Sheetsで作成してください。`);
-      }
-      
-      if (error.message.includes("authentication")) {
-        throw new Error('Google Sheets認証エラー。環境変数を確認してください。');
-      }
-      
-      throw error;
-    }
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    // 新しいIDを生成
+    const newId = await this.getNextId('articles_master');
+    const now = new Date().toISOString();
+    
+    // articles_masterシートの列構造に合わせて配列を作成
+    // A:ID, B:Created_At, C:Title, D:URL, E:Category, F:Priority, G:Memo, H:Status, I:Rating, J:Review, K:Updated_At
+    const values = [[
+      newId,              // A: ID
+      now,                // B: Created_At
+      title,              // C: Title
+      url || '',          // D: URL (空の場合は空文字列)
+      category,           // E: Category
+      priority,           // F: Priority
+      memo,               // G: Memo
+      'want_to_read',     // H: Status
+      '',                 // I: Rating (空)
+      '',                 // J: Review (空)
+      now                 // K: Updated_At
+    ]];
+
+    const response = await sheets.spreadsheets.values.append({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles_master!A:K',
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: { values }
+    });
+
+    console.log('✅ 記事追加完了:', { id: newId, title, url });
+    return newId;
+
+  } catch (error) {
+    console.error('記事追加エラー:', error);
+    throw error;
   }
-
+}
+  
   /**
-   * 記事を読了済みに変更
-   */
-  async markArticleAsRead(id, rating, review) {
-    try {
-      if (!this.auth) {
-        console.log('認証なし - nullを返します');
-        return null;
-      }
+ * 記事を読了済みにマーク
+ */
+async markArticleAsRead(articleId, rating = null, review = '') {
+  try {
+    console.log('📚 記事読了記録:', { articleId, rating, review });
+    
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が設定されていません');
+    }
 
-      const articles = await this.getArticles();
-      const articleIndex = articles.findIndex(article => {
-        const match = article.match(/\[(\d+)\]/);
-        return match && parseInt(match[1]) === id;
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    // 現在のデータを取得
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles_master!A:K'
+    });
+
+    const rows = response.data.values || [];
+    const headers = rows[0];
+    const dataRows = rows.slice(1);
+    
+    // 該当記事を検索
+    const articleRowIndex = dataRows.findIndex(row => parseInt(row[0]) === articleId);
+    
+    if (articleRowIndex === -1) {
+      console.log(`記事ID ${articleId} が見つかりません`);
+      return null;
+    }
+    
+    const articleRow = dataRows[articleRowIndex];
+    
+    // 既に読了済みの場合はスキップ
+    if (articleRow[7] === 'read') {
+      console.log(`記事ID ${articleId} は既に読了済みです`);
+      return null;
+    }
+    
+    // 記事情報を取得（更新前の状態）
+    const article = {
+      id: parseInt(articleRow[0]),
+      created_at: articleRow[1],
+      title: articleRow[2],
+      url: articleRow[3],
+      category: articleRow[4],
+      priority: articleRow[5],
+      memo: articleRow[6],
+      status: 'read', // 更新後のステータス
+      rating: rating,
+      review: review,
+      updated_at: new Date().toISOString()
+    };
+    
+    // 更新する行番号（ヘッダー行を含むため+2）
+    const updateRowNumber = articleRowIndex + 2;
+    
+    // H列（Status）、I列（Rating）、J列（Review）、K列（Updated_At）を更新
+    const updates = [
+      {
+        range: `articles_master!H${updateRowNumber}`,
+        values: [['read']]
+      },
+      {
+        range: `articles_master!I${updateRowNumber}`,
+        values: [[rating || '']]
+      },
+      {
+        range: `articles_master!J${updateRowNumber}`,
+        values: [[review || '']]
+      },
+      {
+        range: `articles_master!K${updateRowNumber}`,
+        values: [[new Date().toISOString()]]
+      }
+    ];
+    
+    // バッチ更新実行
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: this.spreadsheetId,
+      resource: {
+        valueInputOption: 'RAW',
+        data: updates
+      }
+    });
+    
+    console.log('✅ 記事読了記録完了:', article);
+    return article;
+
+  } catch (error) {
+    console.error('記事読了記録エラー:', error);
+    throw error;
+  }
+}
+
+ /**
+ * 記事一覧を取得
+ */
+async getArticles() {
+  try {
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が設定されていません');
+    }
+
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles_master!A:K'
+    });
+
+    const rows = response.data.values || [];
+    if (rows.length <= 1) {
+      return [];
+    }
+
+    const dataRows = rows.slice(1);
+    
+    return dataRows.map(row => {
+      const status = row[7] || 'want_to_read';
+      const priority = row[5] || 'medium';
+      const rating = row[8] ? `⭐`.repeat(parseInt(row[8])) : '';
+      
+      return `[${row[0]}] ${row[2]} (${status})${rating ? ` ${rating}` : ''}`;
+    });
+
+  } catch (error) {
+    console.error('記事一覧取得エラー:', error);
+    return [];
+  }
+}
+  
+  /**
+ * 未読記事一覧を取得（従来形式）
+ */
+async getPendingArticles() {
+  try {
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が設定されていません');
+    }
+
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles_master!A:K'
+    });
+
+    const rows = response.data.values || [];
+    if (rows.length <= 1) {
+      return [];
+    }
+
+    const dataRows = rows.slice(1);
+    
+    return dataRows
+      .filter(row => (row[7] || 'want_to_read') === 'want_to_read')
+      .map(row => {
+        const priority = row[5] || 'medium';
+        const priorityEmoji = priority === 'high' ? '🔴' : priority === 'low' ? '🟢' : '🟡';
+        return `${priorityEmoji} [${row[0]}] ${row[2]}`;
       });
-      
-      if (articleIndex === -1) return null;
-      
-      const rowIndex = articleIndex + 2; // ヘッダー行を考慮
-      const timestamp = new Date().toISOString();
-      
-      const operation = async () => {
-        const auth = await this.auth.getClient();
-        
-        // ステータス更新
-        await this.sheets.spreadsheets.values.update({
-          auth,
-          spreadsheetId: this.spreadsheetId,
-          range: `articles_master!H${rowIndex}`,
-          valueInputOption: 'USER_ENTERED',
-          resource: { values: [['read']] }
-        });
-        
-        // 評価更新
-        if (rating) {
-          await this.sheets.spreadsheets.values.update({
-            auth,
-            spreadsheetId: this.spreadsheetId,
-            range: `articles_master!I${rowIndex}`,
-            valueInputOption: 'USER_ENTERED',
-            resource: { values: [[rating]] }
-          });
-        }
-        
-        // レビュー更新
-        if (review) {
-          await this.sheets.spreadsheets.values.update({
-            auth,
-            spreadsheetId: this.spreadsheetId,
-            range: `articles_master!J${rowIndex}`,
-            valueInputOption: 'USER_ENTERED',
-            resource: { values: [[review]] }
-          });
-        }
-        
-        // 更新日時更新
-        await this.sheets.spreadsheets.values.update({
-          auth,
-          spreadsheetId: this.spreadsheetId,
-          range: `articles_master!K${rowIndex}`,
-          valueInputOption: 'USER_ENTERED',
-          resource: { values: [[timestamp]] }
-        });
-      };
 
-      await this.executeWithTimeout(operation, 15000);
-      
-      return await this.getArticleInfo(id);
-    } catch (error) {
-      console.error('記事読了記録エラー:', error);
-      throw error;
-    }
+  } catch (error) {
+    console.error('未読記事一覧取得エラー:', error);
+    return [];
   }
+}
 
   /**
-   * 記事一覧取得
-   */
-  async getArticles() {
-    try {
-      if (!this.auth) {
-        return [];
-      }
+ * 読了済み記事一覧を取得
+ */
+async getReadArticles() {
+  try {
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が設定されていません');
+    }
 
-      const operation = async () => {
-        const auth = await this.auth.getClient();
-        return this.sheets.spreadsheets.values.get({
-          auth,
-          spreadsheetId: this.spreadsheetId,
-          range: 'articles_master!A:K'
-        });
-      };
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles_master!A:K'
+    });
 
-      const response = await this.executeWithTimeout(operation, 10000);
-      const rows = response.data.values || [];
-      
-      if (rows.length <= 1) return [];
-      
-      return rows.slice(1).map(row => {
-        const [id, createdAt, title, url, category, priority, memo, status, rating] = row;
-        const categoryEmoji = {
-          'tech': '💻',
-          'business': '💼',
-          'lifestyle': '🌟',
-          'news': '📰',
-          'academic': '🎓',
-          'general': '📄'
-        }[category] || '📄';
-        
-        const statusText = status === 'read' ? '(読了済み)' : '(未読)';
-        const ratingText = rating ? ` ${'⭐'.repeat(parseInt(rating))}` : '';
-        
-        return `[${id}] ${categoryEmoji} ${title}${ratingText} ${statusText}`;
+    const rows = response.data.values || [];
+    if (rows.length <= 1) {
+      return [];
+    }
+
+    const dataRows = rows.slice(1);
+    
+    return dataRows
+      .filter(row => row[7] === 'read')
+      .sort((a, b) => {
+        // 更新日時の新しい順
+        const dateA = new Date(a[10] || 0);
+        const dateB = new Date(b[10] || 0);
+        return dateB - dateA;
+      })
+      .map(row => {
+        const rating = row[8] ? `⭐`.repeat(parseInt(row[8])) : '';
+        return `[${row[0]}] ${row[2]}${rating ? ` ${rating}` : ''}`;
       });
-    } catch (error) {
-      console.error('記事一覧取得エラー:', error);
-      return [];
-    }
+
+  } catch (error) {
+    console.error('読了済み記事一覧取得エラー:', error);
+    return [];
   }
+}
 
   /**
-   * 未読記事取得
-   */
-  async getPendingArticles() {
-    try {
-      const allArticles = await this.getArticles();
-      return allArticles.filter(article => article.includes('(未読)'));
-    } catch (error) {
-      console.error('未読記事取得エラー:', error);
-      return [];
+ * 記事を削除
+ */
+async removeArticle(articleId) {
+  try {
+    console.log('🗑️ 記事削除:', articleId);
+    
+    if (!this.auth) {
+      throw new Error('Google Sheets認証が設定されていません');
     }
-  }
 
-  /**
-   * 読了済み記事取得
-   */
-  async getReadArticles() {
-    try {
-      const allArticles = await this.getArticles();
-      return allArticles.filter(article => article.includes('(読了済み)'));
-    } catch (error) {
-      console.error('読了済み記事取得エラー:', error);
-      return [];
+    const sheets = google.sheets({ version: 'v4', auth: this.auth });
+    
+    // 現在のデータを取得
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: this.spreadsheetId,
+      range: 'articles_master!A:K'
+    });
+
+    const rows = response.data.values || [];
+    const dataRows = rows.slice(1);
+    
+    // 該当記事を検索
+    const articleRowIndex = dataRows.findIndex(row => parseInt(row[0]) === articleId);
+    
+    if (articleRowIndex === -1) {
+      console.log(`記事ID ${articleId} が見つかりません`);
+      return null;
     }
+    
+    const articleRow = dataRows[articleRowIndex];
+    
+    // 削除前の記事情報を保存
+    const removedArticle = {
+      id: parseInt(articleRow[0]),
+      title: articleRow[2],
+      url: articleRow[3],
+      memo: articleRow[6]
+    };
+    
+    // 実際の行番号（ヘッダー行を含むため+2）
+    const deleteRowNumber = articleRowIndex + 2;
+    
+    // 行を削除
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: this.spreadsheetId,
+      resource: {
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId: await this.getSheetId('articles_master'),
+              dimension: 'ROWS',
+              startIndex: deleteRowNumber - 1,
+              endIndex: deleteRowNumber
+            }
+          }
+        }]
+      }
+    });
+    
+    console.log('✅ 記事削除完了:', removedArticle);
+    return removedArticle;
+
+  } catch (error) {
+    console.error('記事削除エラー:', error);
+    throw error;
   }
+}
 
   /**
    * 記事詳細情報取得
