@@ -23,17 +23,18 @@ module.exports = {
               { name: '月次目標', value: 'monthly' }
             ))
         .addStringOption(option =>
-          option
-            .setName('category')
-            .setDescription('カテゴリ')
-            .setRequired(true)
-            .addChoices(
-              { name: '📚 本', value: 'books' },
-              { name: '🎬 映画', value: 'movies' },
-              { name: '📺 アニメ', value: 'animes' }, 
-              { name: '🎯 活動', value: 'activities' },
-              { name: '📝 日報', value: 'reports' }
-            ))
+  option
+    .setName('category')
+    .setDescription('カテゴリ')
+    .setRequired(true)
+    .addChoices(
+      { name: '📚 本', value: 'books' },
+      { name: '🎬 映画', value: 'movies' },
+      { name: '📺 アニメ', value: 'animes' }, 
+      { name: '📖 漫画', value: 'mangas' }, // 🆕 漫画追加
+      { name: '🎯 活動', value: 'activities' },
+      { name: '📝 日報', value: 'reports' }
+    ))
         .addIntegerOption(option =>
           option
             .setName('target')
