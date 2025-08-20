@@ -204,72 +204,169 @@ class MangaNotificationScheduler {
   }
 
   /**
-   * 次回通知日時を更新
-   */
-  async updateNextNotificationDate(rowIndex, scheduleData) {
-    try {
-      const nextNotification = this.calculateNextNotification(scheduleData);
-      if (!nextNotification) {
-        console.log('⚠️ 次回通知日時を計算できませんでした');
-        return false;
-      }
-
-      const updateRange = `notification_schedules!I${rowIndex}`;
-      const success = await this.googleSheets.updateData(updateRange, [nextNotification]);
-
-      if (success) {
-        console.log(`📅 次回通知日時更新: ${nextNotification}`);
-        return true;
-      } else {
-        console.log('❌ 次回通知日時の更新に失敗しました');
-        return false;
-      }
-
-    } catch (error) {
-      console.error('❌ 次回通知日時更新エラー:', error);
+ * 次回通知日時を更新（隔週対応版）
+ */
+async updateNextNotificationDate(rowIndex, scheduleData) {
+  try {
+    let nextNotification;
+    
+    // 隔週○曜日の場合は特別な計算
+    if (scheduleData.type === 'biweekly_day') {
+      nextNotification = this.calculateBiweeklyDayNext(scheduleData);
+    } else {
+      nextNotification = this.calculateNextNotification(scheduleData);
+    }
+    
+    if (!nextNotification) {
+      console.log('⚠️ 次回通知日時を計算できませんでした');
       return false;
     }
+
+    const updateRange = `notification_schedules!I${rowIndex}`;
+    const success = await this.googleSheets.updateData(updateRange, [nextNotification]);
+
+    if (success) {
+      console.log(`📅 次回通知日時更新: ${nextNotification}`);
+      return true;
+    } else {
+      console.log('❌ 次回通知日時の更新に失敗しました');
+      return false;
+    }
+
+  } catch (error) {
+    console.error('❌ 次回通知日時更新エラー:', error);
+    return false;
   }
+}
 
   /**
-   * 次回通知日時を計算
-   */
-  calculateNextNotification(scheduleData) {
-    if (!scheduleData || !scheduleData.type) {
+ * 隔週○曜日の次回通知計算（通知送信後用）
+ */
+calculateBiweeklyDayNext(scheduleData) {
+  const { dayOfWeek } = scheduleData;
+  const now = new Date();
+  
+  // 現在から2週間後の同じ曜日を計算
+  const nextDate = new Date(now);
+  nextDate.setDate(now.getDate() + 14);
+  
+  // 指定曜日に調整
+  const currentDay = nextDate.getDay();
+  const daysToAdjust = (dayOfWeek - currentDay + 7) % 7;
+  
+  if (daysToAdjust !== 0) {
+    nextDate.setDate(nextDate.getDate() + daysToAdjust);
+  }
+  
+  nextDate.setHours(9, 0, 0, 0);
+  return nextDate.toISOString();
+}
+
+
+  /**
+ * 次回通知日時を計算（改良版）
+ */
+calculateNextNotification(scheduleData) {
+  if (!scheduleData || !scheduleData.type) {
+    return null;
+  }
+
+  const now = new Date();
+
+  switch (scheduleData.type) {
+    case 'weekly':
+      const nextWeekly = new Date(now);
+      nextWeekly.setDate(now.getDate() + 7); // 1週間後
+      nextWeekly.setHours(9, 0, 0, 0);
+      return nextWeekly.toISOString();
+
+    case 'biweekly_day':
+      // 隔週○曜日の場合
+      return this.calculateBiweeklyDayNext(scheduleData);
+
+    case 'biweekly_weeks':
+      // 毎月第N週○曜日の場合
+      return this.calculateBiweeklyWeeksNext(scheduleData);
+
+    case 'monthly':
+      const nextMonthly = new Date(now);
+      nextMonthly.setMonth(now.getMonth() + 1); // 1ヶ月後
+      nextMonthly.setDate(scheduleData.dayOfMonth || 1);
+      nextMonthly.setHours(9, 0, 0, 0);
+      return nextMonthly.toISOString();
+
+    case 'biweekly_old':
+      // 従来の隔週（14日後）
+      const nextBiweekly = new Date(now);
+      nextBiweekly.setDate(now.getDate() + 14);
+      nextBiweekly.setHours(9, 0, 0, 0);
+      return nextBiweekly.toISOString();
+
+    case 'irregular':
+    case 'completed':
+      return null;
+
+    default:
+      console.log(`未知のスケジュールタイプ: ${scheduleData.type}`);
+      return null;
+  }
+}
+
+  /**
+ * 毎月第N週○曜日の次回通知計算
+ */
+calculateBiweeklyWeeksNext(scheduleData) {
+  const { dayOfWeek, weeks } = scheduleData;
+  const now = new Date();
+  
+  // getNthWeekday関数
+  const getNthWeekday = (year, month, weekNumber, dayOfWeek) => {
+    const firstDay = new Date(year, month, 1);
+    const firstWeekday = firstDay.getDay();
+    
+    let daysToAdd = (dayOfWeek - firstWeekday + 7) % 7;
+    const firstOccurrence = new Date(year, month, 1 + daysToAdd);
+    
+    const nthOccurrence = new Date(firstOccurrence);
+    nthOccurrence.setDate(firstOccurrence.getDate() + (weekNumber - 1) * 7);
+    nthOccurrence.setHours(9, 0, 0, 0);
+    
+    if (nthOccurrence.getMonth() !== month) {
       return null;
     }
-
-    const now = new Date();
-
-    switch (scheduleData.type) {
-      case 'weekly':
-        const nextWeekly = new Date(now);
-        nextWeekly.setDate(now.getDate() + 7); // 1週間後
-        nextWeekly.setHours(9, 0, 0, 0); // 朝9時
-        return nextWeekly.toISOString();
-
-      case 'monthly':
-        const nextMonthly = new Date(now);
-        nextMonthly.setMonth(now.getMonth() + 1); // 1ヶ月後
-        nextMonthly.setDate(scheduleData.dayOfMonth || 1);
-        nextMonthly.setHours(9, 0, 0, 0);
-        return nextMonthly.toISOString();
-
-      case 'biweekly':
-        const nextBiweekly = new Date(now);
-        nextBiweekly.setDate(now.getDate() + 14); // 2週間後
-        nextBiweekly.setHours(9, 0, 0, 0);
-        return nextBiweekly.toISOString();
-
-      case 'irregular':
-      case 'completed':
-        return null; // 不定期・完結済みは次回通知なし
-
-      default:
-        console.log(`未知のスケジュールタイプ: ${scheduleData.type}`);
-        return null;
-    }
+    
+    return nthOccurrence;
+  };
+  
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  
+  // 今月の残りの候補日を計算
+  const candidates = weeks.map(weekNum => 
+    getNthWeekday(currentYear, currentMonth, weekNum, dayOfWeek)
+  ).filter(date => date !== null && date > now);
+  
+  // 今月に候補がある場合
+  if (candidates.length > 0) {
+    const nextDate = new Date(Math.min(...candidates.map(d => d.getTime())));
+    return nextDate.toISOString();
   }
+  
+  // 来月の候補を計算
+  const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
+  const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+  
+  const nextMonthCandidates = weeks.map(weekNum => 
+    getNthWeekday(nextYear, nextMonth, weekNum, dayOfWeek)
+  ).filter(date => date !== null);
+  
+  if (nextMonthCandidates.length > 0) {
+    const nextDate = new Date(Math.min(...nextMonthCandidates.map(d => d.getTime())));
+    return nextDate.toISOString();
+  }
+  
+  return null;
+}
 
   // ヘルパーメソッド
   getProgressText(manga) {
