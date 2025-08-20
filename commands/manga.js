@@ -56,6 +56,16 @@ module.exports = {
           option
             .setName('memo')
             .setDescription('備考・メモ（任意）')
+            .setRequired(false))
+    // 🆕 連載スケジュール追加
+        .addStringOption(option =>
+          option.setName('update_schedule')
+            .setDescription('更新スケジュール（例: weekly-monday, monthly-15, irregular）')
+            .setRequired(false))
+        // 🆕 公式URL追加
+        .addStringOption(option =>
+          option.setName('series_url')
+            .setDescription('公式サイト・連載サイトのURL')
             .setRequired(false)))
     
     .addSubcommand(subcommand =>
