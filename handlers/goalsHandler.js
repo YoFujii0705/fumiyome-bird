@@ -10,39 +10,42 @@ const { formatNumber, getProgressBar, getTimeRemaining } = require('../utils/for
 class GoalsHandler {
   constructor() {
     this.presets = {
-      beginner: {
-        weekly: { books: 1, movies: 2, animes: 1, activities: 1, reports: 5 }, // 🆕 アニメ追加
-        monthly: { books: 4, movies: 8, animes: 2, activities: 4, reports: 20 } // 🆕 アニメ追加
-      },
-      standard: {
-        weekly: { books: 2, movies: 3, animes: 1, activities: 5, reports: 7 }, // 🆕 アニメ追加
-        monthly: { books: 8, movies: 12, animes: 4, activities: 20, reports: 28 } // 🆕 アニメ追加
-      },
-      challenge: {
-        weekly: { books: 3, movies: 4, animes: 2, activities: 7, reports: 10 }, // 🆕 アニメ追加
-        monthly: { books: 12, movies: 16, animes: 6, activities: 28, reports: 40 } // 🆕 アニメ追加
-      },
-      expert: {
-        weekly: { books: 4, movies: 5, animes: 2, activities: 10, reports: 14 }, // 🆕 アニメ追加
-        monthly: { books: 16, movies: 20, animes: 8, activities: 40, reports: 56 } // 🆕 アニメ追加
-      }
-    };
+  beginner: {
+    weekly: { books: 1, movies: 2, animes: 1, mangas: 1, activities: 1, reports: 5 }, // 🆕 漫画追加
+    monthly: { books: 4, movies: 8, animes: 2, mangas: 4, activities: 4, reports: 20 } // 🆕 漫画追加
+  },
+  standard: {
+    weekly: { books: 2, movies: 3, animes: 1, mangas: 2, activities: 5, reports: 7 }, // 🆕 漫画追加
+    monthly: { books: 8, movies: 12, animes: 4, mangas: 8, activities: 20, reports: 28 } // 🆕 漫画追加
+  },
+  challenge: {
+    weekly: { books: 3, movies: 4, animes: 2, mangas: 3, activities: 7, reports: 10 }, // 🆕 漫画追加
+    monthly: { books: 12, movies: 16, animes: 6, mangas: 12, activities: 28, reports: 40 } // 🆕 漫画追加
+  },
+  expert: {
+    weekly: { books: 4, movies: 5, animes: 2, mangas: 4, activities: 10, reports: 14 }, // 🆕 漫画追加
+    monthly: { books: 16, movies: 20, animes: 8, mangas: 16, activities: 40, reports: 56 } // 🆕 漫画追加
+  }
+};
+
 
     this.categoryEmojis = {
-      books: '📚',
-      movies: '🎬',
-      animes: '📺', // 🆕 アニメ追加
-      activities: '🎯',
-      reports: '📝'
-    };
+  books: '📚',
+  movies: '🎬',
+  animes: '📺',
+  mangas: '📖', // 🆕 漫画追加
+  activities: '🎯',
+  reports: '📝'
+};
 
     this.categoryNames = {
-      books: '本',
-      movies: '映画',
-      animes: 'アニメ', // 🆕 アニメ追加
-      activities: '活動',
-      reports: '日報'
-    };
+  books: '本',
+  movies: '映画',
+  animes: 'アニメ',
+  mangas: '漫画', // 🆕 漫画追加
+  activities: '活動',
+  reports: '日報'
+};
   }
 
   /**
@@ -687,6 +690,20 @@ class GoalsHandler {
       advice.push(`💡 ${categories}の活動がまだありません。小さな一歩から始めてみましょう。`);
     }
 
+    // 漫画特有のアドバイス
+if (goals.weekly?.mangas || goals.monthly?.mangas) {
+  const weeklyMangas = currentStats.weekly.mangas || 0;
+  const monthlyMangas = currentStats.monthly.mangas || 0;
+  
+  if (weeklyMangas === 0 && monthlyMangas === 0) {
+    advice.push('📖 漫画の読書がまだありません。短編作品や1巻完結から始めてみませんか？');
+  } else if (monthlyMangas >= 5) {
+    advice.push('📖 漫画読書が活発ですね！様々なジャンルに挑戦してみましょう！');
+  } else if (weeklyMangas > 0) {
+    advice.push('📖 漫画読書が順調ですね！この調子で読み進めていきましょう！');
+  }
+}
+
     // アニメ特有のアドバイス
     if (goals.weekly?.animes || goals.monthly?.animes) {
       const weeklyAnimes = currentStats.weekly.animes || 0;
@@ -713,58 +730,67 @@ class GoalsHandler {
    * カテゴリ別アドバイス生成（アニメ対応）
    */
   getCategoryAdvice(category, current, target) {
-    const percentage = Math.round((current / target) * 100);
+  const percentage = Math.round((current / target) * 100);
+  
+  switch (category) {
+    case 'mangas': // 🆕 漫画ケース追加
+      if (percentage >= 100) {
+        return '🎉 漫画読書目標達成！新しいジャンルに挑戦してみませんか？';
+      } else if (percentage >= 50) {
+        return '📖 順調に漫画を読み進めていますね！読了まで頑張りましょう！';
+      } else {
+        return '📖 短編漫画や1巻完結作品から始めると達成しやすいです！';
+      }
     
-    switch (category) {
-      case 'animes':
-        if (percentage >= 100) {
-          return '🎉 アニメ目標達成！新しいジャンルに挑戦してみませんか？';
-        } else if (percentage >= 50) {
-          return '📺 順調にアニメを視聴していますね！完走まで頑張りましょう！';
-        } else {
-          return '📺 短編アニメや映画版から始めると達成しやすいです！';
-        }
-      
-      case 'books':
-        if (percentage >= 100) {
-          return '📚 読書目標達成！新しいジャンルにも挑戦してみませんか？';
-        } else if (percentage >= 50) {
-          return '📖 良いペースで読書が進んでいます！';
-        } else {
-          return '📚 短い本や興味のある分野から始めてみましょう！';
-        }
-      
-      case 'movies':
-        if (percentage >= 100) {
-          return '🎬 映画目標達成！ドキュメンタリーなど新しいジャンルはいかがですか？';
-        } else if (percentage >= 50) {
-          return '🍿 映画鑑賞が順調ですね！';
-        } else {
-          return '🎬 短編映画から始めると達成しやすいです！';
-        }
-      
-      case 'activities':
-        if (percentage >= 100) {
-          return '🎯 活動目標達成！新しいチャレンジを考えてみませんか？';
-        } else if (percentage >= 50) {
-          return '💪 活動的に過ごしていますね！';
-        } else {
-          return '🎯 小さな活動から始めて習慣化していきましょう！';
-        }
-      
-      case 'reports':
-        if (percentage >= 100) {
-          return '📝 日報目標達成！継続が力になります！';
-        } else if (percentage >= 50) {
-          return '📋 日報の習慣が身についてきましたね！';
-        } else {
-          return '📝 短いメモからでも始めて記録の習慣をつけましょう！';
-        }
-      
-      default:
-        return null;
-    }
+    case 'animes':
+      if (percentage >= 100) {
+        return '🎉 アニメ目標達成！新しいジャンルに挑戦してみませんか？';
+      } else if (percentage >= 50) {
+        return '📺 順調にアニメを視聴していますね！完走まで頑張りましょう！';
+      } else {
+        return '📺 短編アニメや映画版から始めると達成しやすいです！';
+      }
+    
+    case 'books':
+      if (percentage >= 100) {
+        return '📚 読書目標達成！新しいジャンルにも挑戦してみませんか？';
+      } else if (percentage >= 50) {
+        return '📖 良いペースで読書が進んでいます！';
+      } else {
+        return '📚 短い本や興味のある分野から始めてみましょう！';
+      }
+    
+    case 'movies':
+      if (percentage >= 100) {
+        return '🎬 映画目標達成！ドキュメンタリーなど新しいジャンルはいかがですか？';
+      } else if (percentage >= 50) {
+        return '🍿 映画鑑賞が順調ですね！';
+      } else {
+        return '🎬 短編映画から始めると達成しやすいです！';
+      }
+    
+    case 'activities':
+      if (percentage >= 100) {
+        return '🎯 活動目標達成！新しいチャレンジを考えてみませんか？';
+      } else if (percentage >= 50) {
+        return '💪 活動的に過ごしていますね！';
+      } else {
+        return '🎯 小さな活動から始めて習慣化していきましょう！';
+      }
+    
+    case 'reports':
+      if (percentage >= 100) {
+        return '📝 日報目標達成！継続が力になります！';
+      } else if (percentage >= 50) {
+        return '📋 日報の習慣が身についてきましたね！';
+      } else {
+        return '📝 短いメモからでも始めて記録の習慣をつけましょう！';
+      }
+    
+    default:
+      return null;
   }
+}
 }
 
 module.exports = new GoalsHandler();
