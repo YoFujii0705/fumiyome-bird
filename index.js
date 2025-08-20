@@ -1212,7 +1212,7 @@ function getGenreText(genre) {
 }
 
 /**
- * 漫画の選択メニュー処理
+ * 漫画の選択メニュー処理（修正版）
  */
 async function handleMangaSelection(interaction) {
   try {
@@ -1244,6 +1244,88 @@ async function handleMangaSelection(interaction) {
       const readManga = await Promise.race([readPromise, timeout]);
       
       if (readManga) {
+        const unit = readManga.format === 'volume' ? '巻' : '話';
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📚 巻数/話数読了記録！')
+          .setColor('#2196F3')
+          .setDescription('新しい巻数/話数を読了しました！📚✨')
+          .addFields(
+            { name: 'ID', value: readManga.id.toString(), inline: true },
+            { name: 'タイトル', value: readManga.title, inline: true },
+            { name: '作者', value: readManga.author, inline: true },
+            { name: '進捗', value: `${readManga.read_count}${readManga.total_count ? `/${readManga.total_count}` : ''}${unit}`, inline: true }
+          )
+          .setTimestamp();
+
+        if (readManga.memo) {
+          embed.addFields({ name: '備考', value: readManga.memo, inline: false });
+        }
+        
+        embed.setFooter({ text: '続きの巻数/話数も /manga read で記録できます' });
+        
+        console.log('✅ 巻数/話数読了完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 巻数/話数読了失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定された漫画が見つからないか、既に処理済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🚀 読書開始
+    else if (customId.startsWith('manga_start_select')) {
+      console.log('🚀 読書開始処理開始');
+      
+      const startPromise = googleSheets.startReadingManga(selectedMangaId);
+      const startedManga = await Promise.race([startPromise, timeout]);
+      
+      if (startedManga) {
+        const unit = startedManga.format === 'volume' ? '巻' : '話';
+        
+        const embed = new EmbedBuilder()
+          .setTitle('🚀 漫画読書開始！')
+          .setColor('#FF9800')
+          .setDescription('素晴らしい！新しい漫画の読書が始まりますね！📚✨')
+          .addFields(
+            { name: 'ID', value: startedManga.id.toString(), inline: true },
+            { name: 'タイトル', value: startedManga.title, inline: true },
+            { name: '作者', value: startedManga.author, inline: true },
+            { name: '形式', value: getMangaTypeFormatText(startedManga.type, startedManga.format), inline: true },
+            { name: 'ステータス変更', value: '📖 読みたい → 📚 読書中', inline: false }
+          )
+          .setFooter({ text: '巻数/話数を読了したら /manga read で記録しましょう！' })
+          .setTimestamp();
+        
+        if (startedManga.total_count) {
+          embed.addFields({ name: `総${unit}数`, value: `${startedManga.total_count}${unit}`, inline: true });
+        }
+        
+        if (startedManga.memo) {
+          embed.addFields({ name: '備考', value: startedManga.memo, inline: false });
+        }
+        
+        console.log('✅ 読書開始完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 読書開始失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定された漫画が見つからないか、既に読書開始済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🎉 読書完了
+    else if (customId.startsWith('manga_finish_select')) {
+      console.log('🎉 読書完了処理開始');
+      
+      const finishPromise = googleSheets.finishReadingManga(selectedMangaId);
+      const finishedManga = await Promise.race([finishPromise, timeout]);
+      
+      if (finishedManga) {
         const unit = finishedManga.format === 'volume' ? '巻' : '話';
         
         const embed = new EmbedBuilder()
@@ -1267,10 +1349,10 @@ async function handleMangaSelection(interaction) {
           embed.addFields({ name: '備考', value: finishedManga.memo, inline: false });
         }
         
-        console.log('✅ 読了完了記録完了');
+        console.log('✅ 読書完了完了');
         await interaction.editReply({ embeds: [embed], components: [] });
       } else {
-        console.log('❌ 読了完了記録失敗');
+        console.log('❌ 読書完了失敗');
         await interaction.editReply({ 
           content: '❌ 指定された漫画が見つからないか、既に読了済みです。', 
           components: [] 
@@ -1602,69 +1684,77 @@ async function handleMangaSelection(interaction) {
 }
 
 /**
- * 漫画のページネーション処理
+ * 漫画のページネーション処理（修正版）
  */
 async function handleMangaPagination(interaction) {
   const customId = interaction.customId;
   
-  if (customId.includes('manga_read_')) {
-    const page = parseInt(customId.split('_').pop());
-    const readingMangas = await googleSheets.getMangasByStatus('reading');
-    
-    if (customId.includes('_prev_') || customId.includes('_next_')) {
-      const mangaHandler = require('./handlers/mangaHandler');
-      await mangaHandler.handleReadWithPagination(interaction, readingMangas, page);
+  try {
+    if (customId.includes('manga_read_')) {
+      const page = parseInt(customId.split('_').pop());
+      const readingMangas = await googleSheets.getMangasByStatus('reading');
+      
+      if (customId.includes('_prev_') || customId.includes('_next_')) {
+        const mangaHandler = require('./handlers/mangaHandler');
+        await mangaHandler.handleReadWithPagination(interaction, readingMangas, page);
+      }
     }
-  }
-  
-  else if (customId.includes('manga_start_')) {
-    const page = parseInt(customId.split('_').pop());
-    const wantToReadMangas = await googleSheets.getMangasByStatus('want_to_read');
     
-    if (customId.includes('_prev_') || customId.includes('_next_')) {
-      const mangaHandler = require('./handlers/mangaHandler');
-      await mangaHandler.handleStartWithPagination(interaction, wantToReadMangas, page);
+    else if (customId.includes('manga_start_')) {
+      const page = parseInt(customId.split('_').pop());
+      const wantToReadMangas = await googleSheets.getMangasByStatus('want_to_read');
+      
+      if (customId.includes('_prev_') || customId.includes('_next_')) {
+        const mangaHandler = require('./handlers/mangaHandler');
+        await mangaHandler.handleStartWithPagination(interaction, wantToReadMangas, page);
+      }
     }
-  }
-  
-  else if (customId.includes('manga_finish_')) {
-    const page = parseInt(customId.split('_').pop());
-    const readingMangas = await googleSheets.getMangasByStatus('reading');
     
-    if (customId.includes('_prev_') || customId.includes('_next_')) {
-      const mangaHandler = require('./handlers/mangaHandler');
-      await mangaHandler.handleFinishWithPagination(interaction, readingMangas, page);
+    else if (customId.includes('manga_finish_')) {
+      const page = parseInt(customId.split('_').pop());
+      const readingMangas = await googleSheets.getMangasByStatus('reading');
+      
+      if (customId.includes('_prev_') || customId.includes('_next_')) {
+        const mangaHandler = require('./handlers/mangaHandler');
+        await mangaHandler.handleFinishWithPagination(interaction, readingMangas, page);
+      }
     }
-  }
-  
-  else if (customId.includes('manga_drop_')) {
-    const page = parseInt(customId.split('_').pop());
-    const readingMangas = await googleSheets.getMangasByStatus('reading');
     
-    if (customId.includes('_prev_') || customId.includes('_next_')) {
-      const mangaHandler = require('./handlers/mangaHandler');
-      await mangaHandler.handleDropWithPagination(interaction, readingMangas, page);
+    else if (customId.includes('manga_drop_')) {
+      const page = parseInt(customId.split('_').pop());
+      const readingMangas = await googleSheets.getMangasByStatus('reading');
+      
+      if (customId.includes('_prev_') || customId.includes('_next_')) {
+        const mangaHandler = require('./handlers/mangaHandler');
+        await mangaHandler.handleDropWithPagination(interaction, readingMangas, page);
+      }
     }
-  }
-  
-  else if (customId.includes('manga_progress_')) {
-    const page = parseInt(customId.split('_').pop());
-    const allMangas = await googleSheets.getAllMangas();
     
-    if (customId.includes('_prev_') || customId.includes('_next_')) {
-      const mangaHandler = require('./handlers/mangaHandler');
-      await mangaHandler.handleProgressWithPagination(interaction, allMangas, page);
+    else if (customId.includes('manga_progress_')) {
+      const page = parseInt(customId.split('_').pop());
+      const allMangas = await googleSheets.getAllMangas();
+      
+      if (customId.includes('_prev_') || customId.includes('_next_')) {
+        const mangaHandler = require('./handlers/mangaHandler');
+        await mangaHandler.handleProgressWithPagination(interaction, allMangas, page);
+      }
     }
-  }
-  
-  else if (customId.includes('manga_info_')) {
-    const page = parseInt(customId.split('_').pop());
-    const allMangas = await googleSheets.getAllMangas();
     
-    if (customId.includes('_prev_') || customId.includes('_next_')) {
-      const mangaHandler = require('./handlers/mangaHandler');
-      await mangaHandler.handleInfoWithPagination(interaction, allMangas, page);
+    else if (customId.includes('manga_info_')) {
+      const page = parseInt(customId.split('_').pop());
+      const allMangas = await googleSheets.getAllMangas();
+      
+      if (customId.includes('_prev_') || customId.includes('_next_')) {
+        const mangaHandler = require('./handlers/mangaHandler');
+        await mangaHandler.handleInfoWithPagination(interaction, allMangas, page);
+      }
     }
+  } catch (error) {
+    console.error('❌ handleMangaPagination エラー:', error);
+    await interaction.editReply({ 
+      content: '❌ ページネーション処理中にエラーが発生しました。', 
+      components: [] 
+    });
   }
 }
 
