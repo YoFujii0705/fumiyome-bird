@@ -3352,12 +3352,12 @@ async deleteReport(reportId) {
 
   // === 統計関連のメソッド ===
 
-  /**
- * 週次統計を取得（アニメ対応版）
+ /**
+ * 週次統計を取得（漫画対応版）
  */
 async getWeeklyStats() {
   try {
-    console.log('📊 週次統計取得開始（アニメ含む）');
+    console.log('📊 週次統計取得開始（漫画含む）');
     
     // 今週の月曜日から日曜日までの期間を計算
     const now = new Date();
@@ -3379,8 +3379,11 @@ async getWeeklyStats() {
     // 映画の視聴完了数
     const watchedMovies = await this.countCompletions('movies_master', 'watched', startDateStr, endDateStr);
     
-    // 🆕 アニメの完走数
+    // アニメの完走数
     const completedAnimes = await this.countAnimeCompletions(startDateStr, endDateStr);
+    
+    // 🆕 漫画の読了数
+    const completedMangas = await this.countMangaCompletions(startDateStr, endDateStr);
     
     // 活動の完了数
     const completedActivities = await this.countCompletions('activities_master', 'done', startDateStr, endDateStr);
@@ -3391,30 +3394,32 @@ async getWeeklyStats() {
     const result = {
       finishedBooks,
       watchedMovies,
-      completedAnimes, // 🆕 アニメ追加
+      completedAnimes,
+      completedMangas, // 🆕 漫画追加
       completedActivities,
       reports
     };
     
-    console.log('✅ 週次統計取得完了（アニメ含む）:', result);
+    console.log('✅ 週次統計取得完了（漫画含む）:', result);
     return result;
   } catch (error) {
     console.error('週次統計取得エラー:', error);
     return { 
       finishedBooks: 0, 
       watchedMovies: 0, 
-      completedAnimes: 0, // 🆕 アニメ追加
+      completedAnimes: 0,
+      completedMangas: 0, // 🆕 漫画追加
       completedActivities: 0, 
       reports: 0 
     };
   }
 }
   /**
- * 月次統計を取得（アニメ対応版）
+ * 月次統計を取得（漫画対応版）
  */
 async getMonthlyStats() {
   try {
-    console.log('📊 月次統計取得開始（アニメ含む）');
+    console.log('📊 月次統計取得開始（漫画含む）');
     
     // 今月の1日から月末までの期間を計算
     const now = new Date();
@@ -3431,8 +3436,11 @@ async getMonthlyStats() {
     // 映画の視聴完了数
     const watchedMovies = await this.countCompletions('movies_master', 'watched', startDateStr, endDateStr);
     
-    // 🆕 アニメの完走数
+    // アニメの完走数
     const completedAnimes = await this.countAnimeCompletions(startDateStr, endDateStr);
+    
+    // 🆕 漫画の読了数
+    const completedMangas = await this.countMangaCompletions(startDateStr, endDateStr);
     
     // 活動の完了数
     const completedActivities = await this.countCompletions('activities_master', 'done', startDateStr, endDateStr);
@@ -3443,25 +3451,26 @@ async getMonthlyStats() {
     const result = {
       finishedBooks,
       watchedMovies,
-      completedAnimes, // 🆕 アニメ追加
+      completedAnimes,
+      completedMangas, // 🆕 漫画追加
       completedActivities,
       reports
     };
     
-    console.log('✅ 月次統計取得完了（アニメ含む）:', result);
+    console.log('✅ 月次統計取得完了（漫画含む）:', result);
     return result;
   } catch (error) {
     console.error('月次統計取得エラー:', error);
     return { 
       finishedBooks: 0, 
       watchedMovies: 0, 
-      completedAnimes: 0, // 🆕 アニメ追加
+      completedAnimes: 0,
+      completedMangas: 0, // 🆕 漫画追加
       completedActivities: 0, 
       reports: 0 
     };
   }
 }
-
   /**
    * 期間統計取得メソッド
    */
