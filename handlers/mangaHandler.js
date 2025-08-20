@@ -7,48 +7,55 @@ const googleSheets = new GoogleSheetsService();
 
 module.exports = {
   async execute(interaction) {
-    const subcommand = interaction.options.getSubcommand();
-    
-    try {
-      switch (subcommand) {
-        case 'add':
-          await this.handleAdd(interaction);
-          break;
-        case 'read':
-          await this.handleRead(interaction);
-          break;
-        case 'start':
-          await this.handleStart(interaction);
-          break;
-        case 'finish':
-          await this.handleFinish(interaction);
-          break;
-        case 'drop':
-          await this.handleDrop(interaction);
-          break;
-        case 'list':
-          await this.handleList(interaction);
-          break;
-        case 'reading':
-          await this.handleReading(interaction);
-          break;
-        case 'completed':
-          await this.handleCompleted(interaction);
-          break;
-        case 'progress':
-          await this.handleProgress(interaction);
-          break;
-        case 'info':
-          await this.handleInfo(interaction);
-          break;
-        default:
-          await interaction.editReply(`❌ 不明なサブコマンド: ${subcommand}`);
-      }
-    } catch (error) {
-      console.error('MangaHandler エラー:', error);
-      await interaction.editReply('❌ 処理中にエラーが発生しました。');
+  const subcommand = interaction.options.getSubcommand();
+  
+  try {
+    switch (subcommand) {
+      case 'add':
+        await this.handleAdd(interaction);
+        break;
+      case 'read':
+        await this.handleRead(interaction);
+        break;
+      case 'start':
+        await this.handleStart(interaction);
+        break;
+      case 'finish':
+        await this.handleFinish(interaction);
+        break;
+      case 'drop':
+        await this.handleDrop(interaction);
+        break;
+      case 'list':
+        await this.handleList(interaction);
+        break;
+      case 'reading':
+        await this.handleReading(interaction);
+        break;
+      case 'completed':
+        await this.handleCompleted(interaction);
+        break;
+      case 'progress':
+        await this.handleProgress(interaction);
+        break;
+      case 'info':
+        await this.handleInfo(interaction);
+        break;
+      // 🆕 連載スケジュール関連のサブコマンドを追加
+      case 'schedule':
+        await this.handleSchedule(interaction);
+        break;
+      case 'notifications':
+        await this.handleNotifications(interaction);
+        break;
+      default:
+        await interaction.editReply(`❌ 不明なサブコマンド: ${subcommand}`);
     }
-  },
+  } catch (error) {
+    console.error('MangaHandler エラー:', error);
+    await interaction.editReply('❌ 処理中にエラーが発生しました。');
+  }
+},
 
   async handleAdd(interaction) {
   const title = interaction.options.getString('title');
