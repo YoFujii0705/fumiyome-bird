@@ -359,7 +359,7 @@ async activateNotificationForManga(mangaId) {
 },
 
 // 🆕 次回通知日時計算メソッド
-// mangaHandler.js の parseUpdateSchedule メソッドを改良
+// mangaHandler.js の parseUpdateSchedule メソッドに追加
 parseUpdateSchedule(updateSchedule) {
   if (!updateSchedule) return null;
   
@@ -383,21 +383,39 @@ parseUpdateSchedule(updateSchedule) {
     }
   }
   
-  // 🆕 改良版隔週スケジュール (biweekly-monday-1,3, biweekly-friday-2,4 など)
-  const biweeklyMatch = schedule.match(/^biweekly-(\w+)-(\d+),(\d+)$/);
-  if (biweeklyMatch) {
+  // 🆕 隔週○曜日スケジュール (biweekly-monday, biweekly-friday など)
+  const biweeklyDayMatch = schedule.match(/^biweekly-(\w+)$/);
+  if (biweeklyDayMatch) {
     const dayNames = {
       'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4,
       'friday': 5, 'saturday': 6, 'sunday': 0
     };
     
-    const dayOfWeek = dayNames[biweeklyMatch[1]];
-    const week1 = parseInt(biweeklyMatch[2]);
-    const week2 = parseInt(biweeklyMatch[3]);
+    const dayOfWeek = dayNames[biweeklyDayMatch[1]];
+    if (dayOfWeek !== undefined) {
+      return {
+        type: 'biweekly_day',
+        dayOfWeek: dayOfWeek,
+        displayName: `隔週${this.getDayName(dayOfWeek)}曜日`
+      };
+    }
+  }
+  
+  // 🆕 毎月第N週○曜日スケジュール (biweekly-monday-1,3, biweekly-friday-2,4 など)
+  const biweeklyWeekMatch = schedule.match(/^biweekly-(\w+)-(\d+),(\d+)$/);
+  if (biweeklyWeekMatch) {
+    const dayNames = {
+      'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4,
+      'friday': 5, 'saturday': 6, 'sunday': 0
+    };
+    
+    const dayOfWeek = dayNames[biweeklyWeekMatch[1]];
+    const week1 = parseInt(biweeklyWeekMatch[2]);
+    const week2 = parseInt(biweeklyWeekMatch[3]);
     
     if (dayOfWeek !== undefined && [1,2,3,4].includes(week1) && [1,2,3,4].includes(week2)) {
       return {
-        type: 'biweekly',
+        type: 'biweekly_weeks',
         dayOfWeek: dayOfWeek,
         weeks: [week1, week2],
         displayName: `毎月第${week1}・第${week2}${this.getDayName(dayOfWeek)}曜日`
@@ -452,22 +470,15 @@ calculateNextNotification(scheduleData) {
   
   switch (scheduleData.type) {
     case 'weekly':
-      const nextWeekly = new Date(now);
-      const currentDay = now.getDay();
-      const targetDay = scheduleData.dayOfWeek;
+      return this.calculateWeeklyNotification(scheduleData, now);
       
-      let daysUntilNext = (targetDay - currentDay + 7) % 7;
-      if (daysUntilNext === 0) {
-        daysUntilNext = 7; // 今日が更新日なら来週
-      }
+    case 'biweekly_day':
+      // 🆕 隔週○曜日の計算
+      return this.calculateBiweeklyDayNotification(scheduleData, now);
       
-      nextWeekly.setDate(now.getDate() + daysUntilNext);
-      nextWeekly.setHours(9, 0, 0, 0);
-      return nextWeekly.toISOString();
-      
-    case 'biweekly':
-      // 🆕 新しい隔週計算（曜日指定あり）
-      return this.calculateBiweeklyNotification(scheduleData, now);
+    case 'biweekly_weeks':
+      // 🆕 毎月第N週○曜日の計算
+      return this.calculateBiweeklyWeeksNotification(scheduleData, now);
       
     case 'biweekly_old':
       // 🔧 従来の隔週計算（曜日指定なし）
@@ -477,11 +488,7 @@ calculateNextNotification(scheduleData) {
       return nextBiweekly.toISOString();
       
     case 'monthly':
-      const nextMonthly = new Date(now.getFullYear(), now.getMonth(), scheduleData.dayOfMonth, 9, 0, 0, 0);
-      if (nextMonthly <= now) {
-        nextMonthly.setMonth(nextMonthly.getMonth() + 1);
-      }
-      return nextMonthly.toISOString();
+      return this.calculateMonthlyNotification(scheduleData, now);
       
     case 'irregular':
     case 'completed':
@@ -493,26 +500,77 @@ calculateNextNotification(scheduleData) {
   }
 },
 
-// 🆕 隔週通知計算の詳細実装
-calculateBiweeklyNotification(scheduleData, currentDate) {
+// 🆕 隔週○曜日の通知計算
+calculateBiweeklyDayNotification(scheduleData, currentDate) {
+  const { dayOfWeek } = scheduleData;
+  const now = currentDate || new Date();
+  
+  // 次の指定曜日を計算
+  const nextTargetDay = new Date(now);
+  const currentDay = now.getDay();
+  
+  let daysUntilNext = (dayOfWeek - currentDay + 7) % 7;
+  if (daysUntilNext === 0) {
+    daysUntilNext = 7; // 今日が指定曜日なら来週
+  }
+  
+  nextTargetDay.setDate(now.getDate() + daysUntilNext);
+  nextTargetDay.setHours(9, 0, 0, 0);
+  
+  // 隔週なので、さらに1週間後にする
+  nextTargetDay.setDate(nextTargetDay.getDate() + 7);
+  
+  return nextTargetDay.toISOString();
+},
+
+// 🆕 隔週スケジュール更新時の次回計算（読書開始時やテスト時用）
+updateBiweeklyDaySchedule(scheduleData, lastNotificationDate) {
+  const { dayOfWeek } = scheduleData;
+  const lastDate = lastNotificationDate ? new Date(lastNotificationDate) : new Date();
+  
+  // 前回の通知から2週間後の同じ曜日
+  const nextDate = new Date(lastDate);
+  nextDate.setDate(lastDate.getDate() + 14);
+  nextDate.setHours(9, 0, 0, 0);
+  
+  return nextDate.toISOString();
+},
+
+// 週次の通知計算
+calculateWeeklyNotification(scheduleData, currentDate) {
+  const { dayOfWeek } = scheduleData;
+  const now = currentDate || new Date();
+  
+  const nextWeekly = new Date(now);
+  const currentDay = now.getDay();
+  
+  let daysUntilNext = (dayOfWeek - currentDay + 7) % 7;
+  if (daysUntilNext === 0) {
+    daysUntilNext = 7; // 今日が更新日なら来週
+  }
+  
+  nextWeekly.setDate(now.getDate() + daysUntilNext);
+  nextWeekly.setHours(9, 0, 0, 0);
+  return nextWeekly.toISOString();
+},
+
+// 毎月第N週○曜日の通知計算
+calculateBiweeklyWeeksNotification(scheduleData, currentDate) {
   const { dayOfWeek, weeks } = scheduleData;
   const now = currentDate || new Date();
   
-  // 今月の第N週の指定曜日を計算する関数
+  // getNthWeekday関数（前回と同じ）
   const getNthWeekday = (year, month, weekNumber, dayOfWeek) => {
     const firstDay = new Date(year, month, 1);
     const firstWeekday = firstDay.getDay();
     
-    // 第1週の指定曜日を計算
     let daysToAdd = (dayOfWeek - firstWeekday + 7) % 7;
     const firstOccurrence = new Date(year, month, 1 + daysToAdd);
     
-    // 第N週の指定曜日を計算
     const nthOccurrence = new Date(firstOccurrence);
     nthOccurrence.setDate(firstOccurrence.getDate() + (weekNumber - 1) * 7);
     nthOccurrence.setHours(9, 0, 0, 0);
     
-    // その日が翌月になってしまった場合はnullを返す
     if (nthOccurrence.getMonth() !== month) {
       return null;
     }
@@ -530,7 +588,8 @@ calculateBiweeklyNotification(scheduleData, currentDate) {
   
   // 今月に候補がある場合
   if (candidates.length > 0) {
-    return Math.min(...candidates.map(d => d.getTime()));
+    const nextDate = new Date(Math.min(...candidates.map(d => d.getTime())));
+    return nextDate.toISOString();
   }
   
   // 来月の候補を計算
@@ -547,6 +606,18 @@ calculateBiweeklyNotification(scheduleData, currentDate) {
   }
   
   return null;
+},
+
+// 月次の通知計算
+calculateMonthlyNotification(scheduleData, currentDate) {
+  const { dayOfMonth } = scheduleData;
+  const now = currentDate || new Date();
+  
+  const nextMonthly = new Date(now.getFullYear(), now.getMonth(), dayOfMonth, 9, 0, 0, 0);
+  if (nextMonthly <= now) {
+    nextMonthly.setMonth(nextMonthly.getMonth() + 1);
+  }
+  return nextMonthly.toISOString();
 },
 
 
