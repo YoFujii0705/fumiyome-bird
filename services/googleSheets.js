@@ -3119,23 +3119,23 @@ async getMonthlyAnimeTitles() {
   }
 
  /**
- * 最近のレポートを取得（修正版）
+ * 最近のレポートを取得（漫画対応版）
  */
 async getRecentReports(days = 7) {
   try {
-    console.log(`📝 過去${days}日間のレポート取得開始`);
+    console.log(`📝 過去${days}日間のレポート取得開始（漫画対応）`);
     
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
     const cutoffDateStr = cutoffDate.toISOString().slice(0, 10);
     
-    const data = await this.getData('daily_reports!A:Z');
+    const data = await this.getData('daily_reports!A:H');
     if (!data || data.length <= 1) return [];
 
     const reports = [];
     const dataRows = data.slice(1); // ヘッダー行をスキップ
 
-    console.log('📊 daily_reports シート構造確認:');
+    console.log('📊 daily_reports シート構造確認（漫画対応）:');
     if (data.length > 0) {
       console.log('ヘッダー行:', data[0]);
       if (data.length > 1) {
@@ -3149,14 +3149,19 @@ async getRecentReports(days = 7) {
 
       const dateStr = new Date(reportDate).toISOString().slice(0, 10);
       if (dateStr >= cutoffDateStr) {
-        // daily_reports の正しい列構造
-        // A列: reportId, B列: date, C列: category, D列: itemId, E列: content
+        // daily_reports の正しい列構造（漫画対応）
+        // A列: reportId, B列: date, C列: category, D列: itemId, E列: itemTitle, F列: content, G列: created_at, H列: updated_at
         const report = {
-          timestamp: new Date(reportDate),
-          category: row[2] || 'unknown',    // C列: category
-          content: row[4] || '',            // E列: content (実際のレポート内容)
+          id: row[0] || 'unknown',          // A列: reportId
+          date: reportDate,                 // B列: date
+          timestamp: new Date(reportDate),  // timestamp用
+          category: row[2] || 'unknown',    // C列: category（manga含む）
           item_id: row[3] || '',            // D列: itemId
-          user_id: row[0] || 'default'      // A列: reportId (またはuser_id)
+          itemId: row[3] || '',            // 互換性のため
+          item_title: row[4] || '',         // E列: itemTitle
+          content: row[5] || '',            // F列: content（実際のレポート内容）
+          created_at: row[6] || '',         // G列: created_at
+          updated_at: row[7] || ''          // H列: updated_at
         };
 
         // デバッグ用ログ
@@ -3172,7 +3177,7 @@ async getRecentReports(days = 7) {
       }
     });
 
-    console.log(`✅ ${reports.length}件のレポートを取得しました`);
+    console.log(`✅ ${reports.length}件のレポートを取得しました（漫画含む）`);
     return reports.sort((a, b) => b.timestamp - a.timestamp); // 新しい順
 
   } catch (error) {
@@ -3181,43 +3186,48 @@ async getRecentReports(days = 7) {
   }
 }
 
-
   /**
-   * キーワードでレポートを検索
-   */
-  async searchReportsByKeyword(keyword) {
-    try {
-      const values = await this.getData('daily_reports!A:E');
-      
-      const reports = values.slice(1)
-        .filter(row => {
-          const content = (row[4] || '').toLowerCase();
-          return content.includes(keyword.toLowerCase());
-        })
-        .map(row => ({
-          reportId: row[0],
-          date: row[1],
-          category: row[2],
-          itemId: row[3],
-          content: row[4] || ''
-        }))
-        .sort((a, b) => new Date(b.date) - new Date(a.date));
-      
-      console.log(`"${keyword}" の検索結果:`, reports.length, '件');
-      return reports;
-    } catch (error) {
-      console.error('レポートキーワード検索エラー:', error);
-      return [];
-    }
-  }
+ * キーワードでレポートを検索（漫画対応版）
+ */
+async searchReportsByKeyword(keyword) {
+  try {
+    console.log(`🔍 searchReportsByKeyword 開始（漫画対応）: "${keyword}"`);
 
-// 🆕 レポート追加メソッド
+    const allReports = await this.getAllReports();
+    
+    // キーワードでフィルタリング（部分一致、大文字小文字無視）
+    const lowerKeyword = keyword.toLowerCase();
+    const matchingReports = allReports.filter(report => {
+      return (
+        report.content.toLowerCase().includes(lowerKeyword) ||
+        report.item_title.toLowerCase().includes(lowerKeyword)
+      );
+    }).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    console.log(`✅ キーワード「${keyword}」で ${matchingReports.length}件のレポートが見つかりました（漫画含む）`);
+    return matchingReports;
+
+  } catch (error) {
+    console.error('レポート検索エラー:', error);
+    return [];
+  }
+}
+
+/**
+ * レポートを追加（漫画対応版）
+ */
 async addReport(category, itemId, itemTitle, content) {
   try {
-    console.log('💾 addReport開始:', { category, itemId, itemTitle, content });
+    console.log('💾 addReport開始（漫画対応）:', { category, itemId, itemTitle, content });
 
     if (!this.auth) {
       throw new Error('Google Sheets認証が必要です');
+    }
+
+    // カテゴリの検証
+    const validCategories = ['book', 'movie', 'anime', 'manga', 'activity'];
+    if (!validCategories.includes(category)) {
+      throw new Error(`無効なカテゴリ: ${category}. 有効なカテゴリ: ${validCategories.join(', ')}`);
     }
 
     const sheets = google.sheets({ version: 'v4', auth: this.auth });
@@ -3248,7 +3258,7 @@ async addReport(category, itemId, itemTitle, content) {
     const values = [[
       newId,           // A列: ID
       dateStr,         // B列: 日付
-      category,        // C列: カテゴリ
+      category,        // C列: カテゴリ（manga含む）
       itemId,          // D列: アイテムID
       itemTitle,       // E列: アイテムタイトル
       content,         // F列: レポート内容
@@ -3280,10 +3290,12 @@ async addReport(category, itemId, itemTitle, content) {
   }
 }
 
-// 🆕 全レポート取得メソッド
+/**
+ * 全レポート取得メソッド（漫画対応版）
+ */
 async getAllReports() {
   try {
-    console.log('🔍 getAllReports 開始');
+    console.log('🔍 getAllReports 開始（漫画対応）');
 
     const sheets = google.sheets({ version: 'v4', auth: this.auth });
     const response = await sheets.spreadsheets.values.get({
@@ -3297,18 +3309,35 @@ async getAllReports() {
       return [];
     }
 
-    const reports = rows.slice(1).map((row, index) => ({
-      id: parseInt(row[0]) || (index + 1),
-      date: row[1] || '',
-      category: row[2] || '',
-      item_id: parseInt(row[3]) || 0,
-      item_title: row[4] || '',
-      content: row[5] || '',
-      created_at: row[6] || '',
-      updated_at: row[7] || ''
-    })).filter(report => report.content);
+    const reports = rows.slice(1).map((row, index) => {
+      const report = {
+        id: parseInt(row[0]) || (index + 1),
+        date: row[1] || '',
+        category: row[2] || '',  // manga対応
+        item_id: parseInt(row[3]) || 0,
+        item_title: row[4] || '',
+        content: row[5] || '',
+        created_at: row[6] || '',
+        updated_at: row[7] || ''
+      };
 
-    console.log(`✅ getAllReports 完了: ${reports.length}件取得`);
+      // デバッグ用：漫画レポートの確認
+      if (report.category === 'manga' && index < 3) {
+        console.log(`📚 漫画レポートサンプル: ${JSON.stringify(report)}`);
+      }
+
+      return report;
+    }).filter(report => report.content);
+
+    console.log(`✅ getAllReports 完了（漫画対応）: ${reports.length}件取得`);
+    
+    // カテゴリ別の統計もログ出力
+    const categoryCounts = reports.reduce((acc, report) => {
+      acc[report.category] = (acc[report.category] || 0) + 1;
+      return acc;
+    }, {});
+    console.log('📊 カテゴリ別レポート数:', categoryCounts);
+
     return reports;
 
   } catch (error) {
@@ -3317,6 +3346,25 @@ async getAllReports() {
   }
 }
 
+  /**
+ * 漫画レポートのみを取得
+ */
+async getMangaReports() {
+  try {
+    console.log('📚 漫画レポート取得開始');
+    
+    const allReports = await this.getAllReports();
+    const mangaReports = allReports.filter(report => report.category === 'manga');
+    
+    console.log(`✅ 漫画レポート ${mangaReports.length}件取得`);
+    return mangaReports.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+  } catch (error) {
+    console.error('❌ 漫画レポート取得エラー:', error);
+    return [];
+  }
+}
+  
 // 🆕 カテゴリ別レポート取得メソッド
 async getReportsByCategory(category) {
   try {
@@ -3334,10 +3382,19 @@ async getReportsByCategory(category) {
   }
 }
 
-// 🆕 アイテム別レポート取得メソッド
+/**
+ * アイテム別レポートを取得（漫画対応版）
+ */
 async getReportsByItem(category, itemId) {
   try {
-    console.log(`🔍 getReportsByItem 開始: ${category}, ID: ${itemId}`);
+    console.log(`🔍 getReportsByItem 開始（漫画対応）: ${category}, ID: ${itemId}`);
+
+    // カテゴリの検証
+    const validCategories = ['book', 'movie', 'anime', 'manga', 'activity'];
+    if (!validCategories.includes(category)) {
+      console.error(`❌ 無効なカテゴリ: ${category}`);
+      return [];
+    }
 
     const allReports = await this.getAllReports();
     const itemReports = allReports.filter(report => 
@@ -3346,11 +3403,11 @@ async getReportsByItem(category, itemId) {
     );
 
     console.log(`✅ アイテム「${category}:${itemId}」のレポート ${itemReports.length}件取得`);
-    return itemReports;
+    return itemReports.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   } catch (error) {
     console.error('❌ getReportsByItem エラー:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -3377,11 +3434,11 @@ async deleteReport(reportId) {
  * 週次統計を取得（漫画対応版）
  */
 /**
- * 週次統計を取得（完全版 - 漫画含む）
+ * 週次統計を取得（漫画対応完全版）
  */
 async getWeeklyStats() {
   try {
-    console.log('📊 週次統計取得開始（漫画含む）');
+    console.log('📊 週次統計取得開始（漫画対応完全版）');
     
     // 今週の月曜日から日曜日までの期間を計算
     const now = new Date();
@@ -3397,7 +3454,7 @@ async getWeeklyStats() {
     const startDateStr = startOfWeek.toISOString().slice(0, 10);
     const endDateStr = endOfWeek.toISOString().slice(0, 10);
 
-    // 各カテゴリの完了数を取得
+    // 各カテゴリの完了数を取得（漫画含む）
     const finishedBooks = await this.countCompletions('books_master', 'finished', startDateStr, endDateStr);
     const watchedMovies = await this.countCompletions('movies_master', 'watched', startDateStr, endDateStr);
     const completedAnimes = await this.countAnimeCompletions(startDateStr, endDateStr);
@@ -3414,7 +3471,7 @@ async getWeeklyStats() {
       reports
     };
     
-    console.log('✅ 週次統計取得完了（漫画含む）:', result);
+    console.log('✅ 週次統計取得完了（漫画対応完全版）:', result);
     return result;
   } catch (error) {
     console.error('週次統計取得エラー:', error);
@@ -3430,11 +3487,11 @@ async getWeeklyStats() {
 }
   
  /**
- * 月次統計を取得（完全版 - 漫画含む）
+ * 月次統計を取得（漫画対応完全版）
  */
 async getMonthlyStats() {
   try {
-    console.log('📊 月次統計取得開始（漫画含む）');
+    console.log('📊 月次統計取得開始（漫画対応完全版）');
     
     // 今月の1日から月末までの期間を計算
     const now = new Date();
@@ -3445,7 +3502,7 @@ async getMonthlyStats() {
     const startDateStr = startOfMonth.toISOString().slice(0, 10);
     const endDateStr = endOfMonth.toISOString().slice(0, 10);
 
-    // 各カテゴリの完了数を取得
+    // 各カテゴリの完了数を取得（漫画含む）
     const finishedBooks = await this.countCompletions('books_master', 'finished', startDateStr, endDateStr);
     const watchedMovies = await this.countCompletions('movies_master', 'watched', startDateStr, endDateStr);
     const completedAnimes = await this.countAnimeCompletions(startDateStr, endDateStr);
@@ -3462,7 +3519,7 @@ async getMonthlyStats() {
       reports
     };
     
-    console.log('✅ 月次統計取得完了（漫画含む）:', result);
+    console.log('✅ 月次統計取得完了（漫画対応完全版）:', result);
     return result;
   } catch (error) {
     console.error('月次統計取得エラー:', error);
@@ -3590,34 +3647,42 @@ async getMonthlyStats() {
   }
 
   /**
-   * レポート数をカウント
-   */
-  async countReports(startDate, endDate) {
-    try {
-      const data = await this.getData('daily_reports!A:Z');
-      if (!data || data.length <= 1) return 0;
+ * レポート数をカウント（漫画対応版）
+ */
+async countReports(startDate, endDate) {
+  try {
+    const data = await this.getData('daily_reports!A:H');
+    if (!data || data.length <= 1) return 0;
 
-      let count = 0;
-      const dataRows = data.slice(1); // ヘッダー行をスキップ
+    let count = 0;
+    const dataRows = data.slice(1); // ヘッダー行をスキップ
 
-      dataRows.forEach(row => {
-        const reportDate = row[1]; // B列: date
-        if (!reportDate) return;
+    console.log(`📝 レポート数カウント開始（漫画含む）: ${startDate} ～ ${endDate}`);
 
-        const dateStr = new Date(reportDate).toISOString().slice(0, 10);
-        if (dateStr >= startDate && dateStr <= endDate) {
-          count++;
+    dataRows.forEach((row, index) => {
+      const reportDate = row[1]; // B列: date
+      if (!reportDate) return;
+
+      const dateStr = new Date(reportDate).toISOString().slice(0, 10);
+      if (dateStr >= startDate && dateStr <= endDate) {
+        count++;
+        
+        // カテゴリ別のカウント詳細をログ出力（サンプル）
+        if (count <= 5) {
+          const category = row[2] || 'unknown';
+          const title = row[4] || 'タイトル不明';
+          console.log(`✅ レポート [${count}] ${category}: "${title}" - ${dateStr}`);
         }
-      });
+      }
+    });
 
-      console.log(`Reports count: ${count}`);
-      return count;
-    } catch (error) {
-      console.error('レポート数カウントエラー:', error);
-      return 0;
-    }
+    console.log(`📝 レポート総数（漫画含む）: ${count}`);
+    return count;
+  } catch (error) {
+    console.error('レポート数カウントエラー:', error);
+    return 0;
   }
-
+}
   /**
    * 日付を安全にパースするヘルパーメソッド
    */
@@ -4584,44 +4649,52 @@ async removeArticle(articleId) {
   }
 
   /**
-   * 全統計を取得
-   */
-  async getAllStats() {
-    try {
-      const data = await this.batchGetData([
-        'books_master!A:G',
-        'movies_master!A:F',
-        'activities_master!A:F',
-        'daily_reports!A:E'
-      ]);
-      
-      const books = data.books_master || [];
-      const movies = data.movies_master || [];
-      const activities = data.activities_master || [];
-      const reports = data.daily_reports || [];
-      
-      // 各種統計を計算
-      const bookStats = this.calculateBookStats(books.slice(1));
-      const movieStats = this.calculateMovieStats(movies.slice(1));
-      const activityStats = this.calculateActivityStats(activities.slice(1));
-      const reportStats = this.calculateReportStats(reports.slice(1));
-      
-      return {
-        books: bookStats,
-        movies: movieStats,
-        activities: activityStats,
-        reports: reportStats,
-        summary: {
-          totalItems: bookStats.total + movieStats.total + activityStats.total,
-          completedItems: bookStats.finished + movieStats.watched + activityStats.done,
-          totalReports: reportStats.total
-        }
-      };
-    } catch (error) {
-      console.error('全統計取得エラー:', error);
-      return null;
-    }
+ * 全統計を取得（漫画対応版）
+ */
+async getAllStats() {
+  try {
+    const data = await this.batchGetData([
+      'books_master!A:G',
+      'movies_master!A:F',
+      'anime_master!A:K',     // 🆕 アニメ追加
+      'manga_master!A:P',     // 🆕 漫画追加
+      'activities_master!A:F',
+      'daily_reports!A:H'
+    ]);
+    
+    const books = data.books_master || [];
+    const movies = data.movies_master || [];
+    const animes = data.anime_master || [];     // 🆕 アニメ追加
+    const mangas = data.manga_master || [];     // 🆕 漫画追加
+    const activities = data.activities_master || [];
+    const reports = data.daily_reports || [];
+    
+    // 各種統計を計算（漫画対応）
+    const bookStats = this.calculateBookStats(books.slice(1));
+    const movieStats = this.calculateMovieStats(movies.slice(1));
+    const animeStats = this.calculateAnimeStats(animes.slice(1));   // 🆕 アニメ追加
+    const mangaStats = this.calculateMangaStats(mangas.slice(1));   // 🆕 漫画追加
+    const activityStats = this.calculateActivityStats(activities.slice(1));
+    const reportStats = this.calculateReportStats(reports.slice(1));
+    
+    return {
+      books: bookStats,
+      movies: movieStats,
+      animes: animeStats,     // 🆕 アニメ追加
+      mangas: mangaStats,     // 🆕 漫画追加
+      activities: activityStats,
+      reports: reportStats,
+      summary: {
+        totalItems: bookStats.total + movieStats.total + animeStats.total + mangaStats.total + activityStats.total, // 🆕 漫画追加
+        completedItems: bookStats.finished + movieStats.watched + animeStats.completed + mangaStats.finished + activityStats.done, // 🆕 漫画追加
+        totalReports: reportStats.total
+      }
+    };
+  } catch (error) {
+    console.error('全統計取得エラー:', error);
+    return null;
   }
+}
 
   // === 統計計算ヘルパーメソッド ===
 
@@ -4664,26 +4737,56 @@ async removeArticle(articleId) {
   }
 
   /**
-   * レポートの統計を計算
-   */
-  calculateReportStats(reports) {
-    const now = new Date();
-    const thisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const thisWeekStr = thisWeek.toISOString().slice(0, 10);
-    const thisMonthStr = thisMonth.toISOString().slice(0, 10);
-    
-    return {
-      total: reports.length,
-      thisWeek: reports.filter(row => row[1] >= thisWeekStr).length,
-      thisMonth: reports.filter(row => row[1] >= thisMonthStr).length,
-      byCategory: {
-        book: reports.filter(row => row[2] === 'book').length,
-        movie: reports.filter(row => row[2] === 'movie').length,
-        activity: reports.filter(row => row[2] === 'activity').length
-      }
-    };
-  }
+ * アニメの統計を計算
+ */
+calculateAnimeStats(animes) {
+  return {
+    total: animes.length,
+    wantToWatch: animes.filter(row => row[7] === 'want_to_watch').length,  // H列: status
+    watching: animes.filter(row => row[7] === 'watching').length,
+    completed: animes.filter(row => row[7] === 'completed').length,
+    dropped: animes.filter(row => row[7] === 'dropped').length
+  };
+}
+
+// 新規追加：漫画統計計算メソッド
+/**
+ * 漫画の統計を計算
+ */
+calculateMangaStats(mangas) {
+  return {
+    total: mangas.length,
+    wantToRead: mangas.filter(row => row[9] === 'want_to_read').length,  // J列: reading_status
+    reading: mangas.filter(row => row[9] === 'reading').length,
+    finished: mangas.filter(row => row[9] === 'finished').length,
+    dropped: mangas.filter(row => row[9] === 'dropped').length
+  };
+}
+
+
+  /**
+ * レポートの統計を計算（漫画対応版）
+ */
+calculateReportStats(reports) {
+  const now = new Date();
+  const thisWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+  const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const thisWeekStr = thisWeek.toISOString().slice(0, 10);
+  const thisMonthStr = thisMonth.toISOString().slice(0, 10);
+  
+  return {
+    total: reports.length,
+    thisWeek: reports.filter(row => row[1] >= thisWeekStr).length,
+    thisMonth: reports.filter(row => row[1] >= thisMonthStr).length,
+    byCategory: {
+      book: reports.filter(row => row[2] === 'book').length,
+      movie: reports.filter(row => row[2] === 'movie').length,
+      anime: reports.filter(row => row[2] === 'anime').length,
+      manga: reports.filter(row => row[2] === 'manga').length, // 🆕 漫画追加
+      activity: reports.filter(row => row[2] === 'activity').length
+    }
+  };
+}
 
   // === データ整合性チェック ===
 
@@ -5312,57 +5415,75 @@ async removeArticle(articleId) {
   }
 
   /**
-   * 全データサマリー表示
-   */
-  async showDataSummary() {
-    console.log('📊 全データサマリー取得開始');
+ * 全データサマリー表示（漫画対応版）
+ */
+async showDataSummary() {
+  console.log('📊 全データサマリー取得開始（漫画対応）');
+  
+  try {
+    const stats = await this.getAllStats();
     
-    try {
-      const stats = await this.getAllStats();
-      
-      if (!stats) {
-        console.log('❌ 統計データの取得に失敗しました');
-        return;
-      }
-      
-      console.log('\n📚 本の統計:');
-      console.log(`  総数: ${stats.books.total}`);
-      console.log(`  買いたい: ${stats.books.wantToBuy}`);
-      console.log(`  積読: ${stats.books.wantToRead}`);
-      console.log(`  読書中: ${stats.books.reading}`);
-      console.log(`  読了: ${stats.books.finished}`);
-      console.log(`  中断: ${stats.books.abandoned}`);
-      
-      console.log('\n🎬 映画の統計:');
-      console.log(`  総数: ${stats.movies.total}`);
-      console.log(`  観たい: ${stats.movies.wantToWatch}`);
-      console.log(`  視聴済み: ${stats.movies.watched}`);
-      console.log(`  見逃し: ${stats.movies.missed}`);
-      
-      console.log('\n🎯 活動の統計:');
-      console.log(`  総数: ${stats.activities.total}`);
-      console.log(`  予定: ${stats.activities.planned}`);
-      console.log(`  完了: ${stats.activities.done}`);
-      console.log(`  スキップ: ${stats.activities.skipped}`);
-      
-      console.log('\n📝 レポートの統計:');
-      console.log(`  総数: ${stats.reports.total}`);
-      console.log(`  今週: ${stats.reports.thisWeek}`);
-      console.log(`  今月: ${stats.reports.thisMonth}`);
-      console.log(`  本関連: ${stats.reports.byCategory.book}`);
-      console.log(`  映画関連: ${stats.reports.byCategory.movie}`);
-      console.log(`  活動関連: ${stats.reports.byCategory.activity}`);
-      
-      console.log('\n📈 サマリー:');
-      console.log(`  総アイテム数: ${stats.summary.totalItems}`);
-      console.log(`  完了アイテム数: ${stats.summary.completedItems}`);
-      console.log(`  完了率: ${stats.summary.totalItems > 0 ? Math.round((stats.summary.completedItems / stats.summary.totalItems) * 100) : 0}%`);
-      console.log(`  総レポート数: ${stats.summary.totalReports}`);
-      
-    } catch (error) {
-      console.error('❌ データサマリー取得エラー:', error);
+    if (!stats) {
+      console.log('❌ 統計データの取得に失敗しました');
+      return;
     }
+    
+    console.log('\n📚 本の統計:');
+    console.log(`  総数: ${stats.books.total}`);
+    console.log(`  買いたい: ${stats.books.wantToBuy}`);
+    console.log(`  積読: ${stats.books.wantToRead}`);
+    console.log(`  読書中: ${stats.books.reading}`);
+    console.log(`  読了: ${stats.books.finished}`);
+    console.log(`  中断: ${stats.books.abandoned}`);
+    
+    console.log('\n🎬 映画の統計:');
+    console.log(`  総数: ${stats.movies.total}`);
+    console.log(`  観たい: ${stats.movies.wantToWatch}`);
+    console.log(`  視聴済み: ${stats.movies.watched}`);
+    console.log(`  見逃し: ${stats.movies.missed}`);
+    
+    // 🆕 アニメ統計追加
+    console.log('\n📺 アニメの統計:');
+    console.log(`  総数: ${stats.animes.total}`);
+    console.log(`  観たい: ${stats.animes.wantToWatch}`);
+    console.log(`  視聴中: ${stats.animes.watching}`);
+    console.log(`  完走済み: ${stats.animes.completed}`);
+    console.log(`  中断: ${stats.animes.dropped}`);
+    
+    // 🆕 漫画統計追加
+    console.log('\n📖 漫画の統計:');
+    console.log(`  総数: ${stats.mangas.total}`);
+    console.log(`  読みたい: ${stats.mangas.wantToRead}`);
+    console.log(`  読書中: ${stats.mangas.reading}`);
+    console.log(`  読了済み: ${stats.mangas.finished}`);
+    console.log(`  中断: ${stats.mangas.dropped}`);
+    
+    console.log('\n🎯 活動の統計:');
+    console.log(`  総数: ${stats.activities.total}`);
+    console.log(`  予定: ${stats.activities.planned}`);
+    console.log(`  完了: ${stats.activities.done}`);
+    console.log(`  スキップ: ${stats.activities.skipped}`);
+    
+    console.log('\n📝 レポートの統計:');
+    console.log(`  総数: ${stats.reports.total}`);
+    console.log(`  今週: ${stats.reports.thisWeek}`);
+    console.log(`  今月: ${stats.reports.thisMonth}`);
+    console.log(`  本関連: ${stats.reports.byCategory.book}`);
+    console.log(`  映画関連: ${stats.reports.byCategory.movie}`);
+    console.log(`  アニメ関連: ${stats.reports.byCategory.anime}`);      // 🆕 アニメ追加
+    console.log(`  漫画関連: ${stats.reports.byCategory.manga}`);        // 🆕 漫画追加
+    console.log(`  活動関連: ${stats.reports.byCategory.activity}`);
+    
+    console.log('\n📈 サマリー:');
+    console.log(`  総アイテム数: ${stats.summary.totalItems}`);
+    console.log(`  完了アイテム数: ${stats.summary.completedItems}`);
+    console.log(`  完了率: ${stats.summary.totalItems > 0 ? Math.round((stats.summary.completedItems / stats.summary.totalItems) * 100) : 0}%`);
+    console.log(`  総レポート数: ${stats.summary.totalReports}`);
+    
+  } catch (error) {
+    console.error('❌ データサマリー取得エラー:', error);
   }
+}
 }
 
 module.exports = GoogleSheetsService;
