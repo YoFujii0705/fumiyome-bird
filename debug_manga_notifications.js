@@ -736,12 +736,12 @@ class MangaNotificationDebugger {
 }
 
 async function main() {
-  const debugger = new MangaNotificationDebugger();
+  const mangaDebugger = new MangaNotificationDebugger();
   
   // Ctrl+C での終了処理
   process.on('SIGINT', async () => {
     console.log('\n\n⏹️  デバッグを中断しています...');
-    await debugger.cleanup();
+    await mangaDebugger.cleanup();
     process.exit(0);
   });
 
@@ -750,21 +750,21 @@ async function main() {
     const command = args[0] || 'help';
     
     if (command === 'help') {
-      debugger.showHelp();
+      mangaDebugger.showHelp();
       return;
     }
 
     // Discord接続が必要なコマンド
-    await debugger.initialize();
+    await mangaDebugger.initialize();
 
     switch (command) {
       case 'test':
         console.log('🚀 漫画通知システムの統合テストを開始します...');
-        await debugger.runIntegrationTest();
+        await mangaDebugger.runIntegrationTest();
         break;
 
       case 'diagnose':
-        const diagnosis = await debugger.diagnoseNotificationSheet();
+        const diagnosis = await mangaDebugger.diagnoseNotificationSheet();
         console.log('\n📊 診断結果サマリー:');
         console.log(`  シート存在: ${diagnosis.sheetExists ? '✅' : '❌'}`);
         console.log(`  ヘッダー: ${diagnosis.hasHeaders ? '✅' : '❌'}`);
@@ -773,12 +773,12 @@ async function main() {
         break;
 
       case 'repair':
-        const repairResult = await debugger.repairNotificationSheet();
+        const repairResult = await mangaDebugger.repairNotificationSheet();
         console.log(repairResult ? '✅ 修復完了' : '❌ 修復失敗');
         break;
 
       case 'list':
-        await debugger.listCurrentNotifications();
+        await mangaDebugger.listCurrentNotifications();
         break;
 
       case 'create':
@@ -789,11 +789,11 @@ async function main() {
           console.log('💡 例: node debug_manga_notifications.js create "テスト漫画" "weekly-monday"');
           break;
         }
-        await debugger.createTestMangaNotification(title, schedule);
+        await mangaDebugger.createTestMangaNotification(title, schedule);
         break;
 
       case 'immediate':
-        const testId = await debugger.createImmediateTestNotification();
+        const testId = await mangaDebugger.createImmediateTestNotification();
         console.log(`💡 1分後に通知が発火予定です。通知サービスが動作していることを確認してください。`);
         console.log(`🆔 テスト通知ID: ${testId}`);
         break;
@@ -805,16 +805,16 @@ async function main() {
           console.log('💡 例: node debug_manga_notifications.js from-manga 1');
           break;
         }
-        await debugger.createNotificationFromManga(parseInt(mangaId));
+        await mangaDebugger.createNotificationFromManga(parseInt(mangaId));
         break;
 
       case 'cleanup':
-        await debugger.cleanupTestNotifications();
+        await mangaDebugger.cleanupTestNotifications();
         break;
 
       default:
         console.log(`❌ 未知のコマンド: ${command}`);
-        debugger.showHelp();
+        mangaDebugger.showHelp();
     }
 
   } catch (error) {
@@ -837,7 +837,7 @@ async function main() {
     
     process.exit(1);
   } finally {
-    await debugger.cleanup();
+    await mangaDebugger.cleanup();
   }
 }
 
