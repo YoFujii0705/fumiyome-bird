@@ -1848,6 +1848,27 @@ async getMonthlyMangaTitles() {
     return [];
   }
 }
+
+  /**
+ * 漫画の形式別統計を取得（オプション）
+ */
+async getMangaFormatStats() {
+  try {
+    const mangas = await this.getAllMangas();
+    
+    const formatStats = {
+      volume: mangas.filter(manga => manga.format === 'volume').length,
+      chapter: mangas.filter(manga => manga.format === 'chapter').length,
+      series: mangas.filter(manga => manga.type === 'series').length,
+      oneshot: mangas.filter(manga => manga.type === 'oneshot').length
+    };
+    
+    return formatStats;
+  } catch (error) {
+    console.error('漫画形式別統計取得エラー:', error);
+    return null;
+  }
+}
   
   // === 映画関連のメソッド ===
 /**
@@ -3355,6 +3376,9 @@ async deleteReport(reportId) {
  /**
  * 週次統計を取得（漫画対応版）
  */
+/**
+ * 週次統計を取得（完全版 - 漫画含む）
+ */
 async getWeeklyStats() {
   try {
     console.log('📊 週次統計取得開始（漫画含む）');
@@ -3373,22 +3397,12 @@ async getWeeklyStats() {
     const startDateStr = startOfWeek.toISOString().slice(0, 10);
     const endDateStr = endOfWeek.toISOString().slice(0, 10);
 
-    // 本の完了数
+    // 各カテゴリの完了数を取得
     const finishedBooks = await this.countCompletions('books_master', 'finished', startDateStr, endDateStr);
-    
-    // 映画の視聴完了数
     const watchedMovies = await this.countCompletions('movies_master', 'watched', startDateStr, endDateStr);
-    
-    // アニメの完走数
     const completedAnimes = await this.countAnimeCompletions(startDateStr, endDateStr);
-    
-    // 🆕 漫画の読了数
-    const completedMangas = await this.countMangaCompletions(startDateStr, endDateStr);
-    
-    // 活動の完了数
+    const completedMangas = await this.countMangaCompletions(startDateStr, endDateStr); // 🆕 漫画追加
     const completedActivities = await this.countCompletions('activities_master', 'done', startDateStr, endDateStr);
-    
-    // レポート数
     const reports = await this.countReports(startDateStr, endDateStr);
     
     const result = {
@@ -3414,8 +3428,9 @@ async getWeeklyStats() {
     };
   }
 }
-  /**
- * 月次統計を取得（漫画対応版）
+  
+ /**
+ * 月次統計を取得（完全版 - 漫画含む）
  */
 async getMonthlyStats() {
   try {
@@ -3430,22 +3445,12 @@ async getMonthlyStats() {
     const startDateStr = startOfMonth.toISOString().slice(0, 10);
     const endDateStr = endOfMonth.toISOString().slice(0, 10);
 
-    // 本の完了数
+    // 各カテゴリの完了数を取得
     const finishedBooks = await this.countCompletions('books_master', 'finished', startDateStr, endDateStr);
-    
-    // 映画の視聴完了数
     const watchedMovies = await this.countCompletions('movies_master', 'watched', startDateStr, endDateStr);
-    
-    // アニメの完走数
     const completedAnimes = await this.countAnimeCompletions(startDateStr, endDateStr);
-    
-    // 🆕 漫画の読了数
-    const completedMangas = await this.countMangaCompletions(startDateStr, endDateStr);
-    
-    // 活動の完了数
+    const completedMangas = await this.countMangaCompletions(startDateStr, endDateStr); // 🆕 漫画追加
     const completedActivities = await this.countCompletions('activities_master', 'done', startDateStr, endDateStr);
-    
-    // レポート数
     const reports = await this.countReports(startDateStr, endDateStr);
     
     const result = {
@@ -3471,6 +3476,7 @@ async getMonthlyStats() {
     };
   }
 }
+  
   /**
    * 期間統計取得メソッド
    */
