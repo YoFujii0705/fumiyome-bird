@@ -359,6 +359,90 @@ async activateNotificationForManga(mangaId) {
 },
 
 // 🆕 次回通知日時計算メソッド
+// mangaHandler.js の parseUpdateSchedule メソッドを改良
+parseUpdateSchedule(updateSchedule) {
+  if (!updateSchedule) return null;
+  
+  const schedule = updateSchedule.toLowerCase();
+  
+  // 週次スケジュール (weekly-monday, weekly-friday など)
+  const weeklyMatch = schedule.match(/^weekly-(\w+)$/);
+  if (weeklyMatch) {
+    const dayNames = {
+      'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4,
+      'friday': 5, 'saturday': 6, 'sunday': 0
+    };
+    
+    const dayOfWeek = dayNames[weeklyMatch[1]];
+    if (dayOfWeek !== undefined) {
+      return {
+        type: 'weekly',
+        dayOfWeek: dayOfWeek,
+        displayName: `毎週${this.getDayName(dayOfWeek)}曜日`
+      };
+    }
+  }
+  
+  // 🆕 改良版隔週スケジュール (biweekly-monday-1,3, biweekly-friday-2,4 など)
+  const biweeklyMatch = schedule.match(/^biweekly-(\w+)-(\d+),(\d+)$/);
+  if (biweeklyMatch) {
+    const dayNames = {
+      'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4,
+      'friday': 5, 'saturday': 6, 'sunday': 0
+    };
+    
+    const dayOfWeek = dayNames[biweeklyMatch[1]];
+    const week1 = parseInt(biweeklyMatch[2]);
+    const week2 = parseInt(biweeklyMatch[3]);
+    
+    if (dayOfWeek !== undefined && [1,2,3,4].includes(week1) && [1,2,3,4].includes(week2)) {
+      return {
+        type: 'biweekly',
+        dayOfWeek: dayOfWeek,
+        weeks: [week1, week2],
+        displayName: `毎月第${week1}・第${week2}${this.getDayName(dayOfWeek)}曜日`
+      };
+    }
+  }
+  
+  // 🔧 従来の隔週スケジュール（後方互換性のため残す）
+  const oldBiweeklyMatch = schedule.match(/^biweekly-(\d+),(\d+)$/);
+  if (oldBiweeklyMatch) {
+    const week1 = parseInt(oldBiweeklyMatch[1]);
+    const week2 = parseInt(oldBiweeklyMatch[2]);
+    return {
+      type: 'biweekly_old',
+      weeks: [week1, week2],
+      displayName: `隔週(第${week1}・${week2}週) ※曜日未指定`
+    };
+  }
+  
+  // 月次スケジュール (monthly-15, monthly-1 など)
+  const monthlyMatch = schedule.match(/^monthly-(\d+)$/);
+  if (monthlyMatch) {
+    const dayOfMonth = parseInt(monthlyMatch[1]);
+    if (dayOfMonth >= 1 && dayOfMonth <= 31) {
+      return {
+        type: 'monthly',
+        dayOfMonth: dayOfMonth,
+        displayName: `毎月${dayOfMonth}日`
+      };
+    }
+  }
+  
+  // その他
+  if (schedule === 'irregular') {
+    return { type: 'irregular', displayName: '不定期' };
+  }
+  
+  if (schedule === 'completed') {
+    return { type: 'completed', displayName: '完結済み' };
+  }
+  
+  return null;
+},
+
+// 🆕 改良版の次回通知日時計算
 calculateNextNotification(scheduleData) {
   if (!scheduleData || !scheduleData.type) {
     return null;
@@ -378,33 +462,91 @@ calculateNextNotification(scheduleData) {
       }
       
       nextWeekly.setDate(now.getDate() + daysUntilNext);
-      nextWeekly.setHours(9, 0, 0, 0); // 朝9時に通知
+      nextWeekly.setHours(9, 0, 0, 0);
       return nextWeekly.toISOString();
       
-    case 'monthly':
-      const nextMonthly = new Date(now.getFullYear(), now.getMonth(), scheduleData.dayOfMonth, 9, 0, 0, 0);
-      
-      if (nextMonthly <= now) {
-        nextMonthly.setMonth(nextMonthly.getMonth() + 1);
-      }
-      
-      return nextMonthly.toISOString();
-      
     case 'biweekly':
-      // 隔週の場合は週次として計算し、後で調整
+      // 🆕 新しい隔週計算（曜日指定あり）
+      return this.calculateBiweeklyNotification(scheduleData, now);
+      
+    case 'biweekly_old':
+      // 🔧 従来の隔週計算（曜日指定なし）
       const nextBiweekly = new Date(now);
-      nextBiweekly.setDate(now.getDate() + 14); // 2週間後
+      nextBiweekly.setDate(now.getDate() + 14);
       nextBiweekly.setHours(9, 0, 0, 0);
       return nextBiweekly.toISOString();
       
+    case 'monthly':
+      const nextMonthly = new Date(now.getFullYear(), now.getMonth(), scheduleData.dayOfMonth, 9, 0, 0, 0);
+      if (nextMonthly <= now) {
+        nextMonthly.setMonth(nextMonthly.getMonth() + 1);
+      }
+      return nextMonthly.toISOString();
+      
     case 'irregular':
     case 'completed':
-      return null; // 通知なし
+      return null;
       
     default:
       console.log(`未知のスケジュールタイプ: ${scheduleData.type}`);
       return null;
   }
+},
+
+// 🆕 隔週通知計算の詳細実装
+calculateBiweeklyNotification(scheduleData, currentDate) {
+  const { dayOfWeek, weeks } = scheduleData;
+  const now = currentDate || new Date();
+  
+  // 今月の第N週の指定曜日を計算する関数
+  const getNthWeekday = (year, month, weekNumber, dayOfWeek) => {
+    const firstDay = new Date(year, month, 1);
+    const firstWeekday = firstDay.getDay();
+    
+    // 第1週の指定曜日を計算
+    let daysToAdd = (dayOfWeek - firstWeekday + 7) % 7;
+    const firstOccurrence = new Date(year, month, 1 + daysToAdd);
+    
+    // 第N週の指定曜日を計算
+    const nthOccurrence = new Date(firstOccurrence);
+    nthOccurrence.setDate(firstOccurrence.getDate() + (weekNumber - 1) * 7);
+    nthOccurrence.setHours(9, 0, 0, 0);
+    
+    // その日が翌月になってしまった場合はnullを返す
+    if (nthOccurrence.getMonth() !== month) {
+      return null;
+    }
+    
+    return nthOccurrence;
+  };
+  
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  
+  // 今月の候補日を計算
+  const candidates = weeks.map(weekNum => 
+    getNthWeekday(currentYear, currentMonth, weekNum, dayOfWeek)
+  ).filter(date => date !== null && date > now);
+  
+  // 今月に候補がある場合
+  if (candidates.length > 0) {
+    return Math.min(...candidates.map(d => d.getTime()));
+  }
+  
+  // 来月の候補を計算
+  const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
+  const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+  
+  const nextMonthCandidates = weeks.map(weekNum => 
+    getNthWeekday(nextYear, nextMonth, weekNum, dayOfWeek)
+  ).filter(date => date !== null);
+  
+  if (nextMonthCandidates.length > 0) {
+    const nextDate = new Date(Math.min(...nextMonthCandidates.map(d => d.getTime())));
+    return nextDate.toISOString();
+  }
+  
+  return null;
 },
 
 
