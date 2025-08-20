@@ -1,3 +1,5 @@
+// reportsHandler.js の修正版 - 漫画対応完全版
+
 const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const GoogleSheetsService = require('../services/googleSheets');
 
@@ -38,7 +40,7 @@ module.exports = {
     }
   },
 
-  // 🆕 履歴表示用のカテゴリ選択
+  // 履歴表示用のカテゴリ選択（漫画対応）
   async showHistorySelection(interaction) {
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId('reports_history_category_select')
@@ -53,6 +55,16 @@ module.exports = {
           label: '🎬 映画',
           description: '映画視聴レポートの履歴を表示します',
           value: 'movie'
+        },
+        {
+          label: '📺 アニメ',
+          description: 'アニメ視聴レポートの履歴を表示します',
+          value: 'anime'
+        },
+        {
+          label: '📖 漫画',
+          description: '漫画読書レポートの履歴を表示します',
+          value: 'manga'
         },
         {
           label: '🎯 活動',
@@ -70,6 +82,8 @@ module.exports = {
       .addFields(
         { name: '📚 本の履歴', value: '読書の進捗や感想の記録を確認', inline: true },
         { name: '🎬 映画の履歴', value: '視聴した映画の感想記録を確認', inline: true },
+        { name: '📺 アニメの履歴', value: '視聴したアニメの感想記録を確認', inline: true },
+        { name: '📖 漫画の履歴', value: '読書した漫画の感想記録を確認', inline: true },
         { name: '🎯 活動の履歴', value: '活動の進捗や振り返り記録を確認', inline: true }
       )
       .setFooter({ text: '特定のアイテムの詳細履歴を確認できます' })
@@ -78,7 +92,7 @@ module.exports = {
     await interaction.editReply({ embeds: [embed], components: [row] });
   },
 
-  // 🆕 選択されたカテゴリのアイテム一覧を表示（履歴用）
+  // 選択されたカテゴリのアイテム一覧を表示（履歴用・漫画対応）
   async showHistoryItemSelection(interaction, category) {
     try {
       let items = [];
@@ -95,6 +109,16 @@ module.exports = {
           items = await googleSheets.getAllMovies();
           categoryName = '映画';
           categoryEmoji = '🎬';
+          break;
+        case 'anime':
+          items = await googleSheets.getAllAnimes();
+          categoryName = 'アニメ';
+          categoryEmoji = '📺';
+          break;
+        case 'manga':
+          items = await googleSheets.getAllMangas();
+          categoryName = '漫画';
+          categoryEmoji = '📖';
           break;
         case 'activity':
           items = await googleSheets.getAllActivities();
@@ -130,6 +154,13 @@ module.exports = {
               } else if (category === 'movie') {
                 label = `${item.title}`.slice(0, 100);
                 description = `${this.getMovieStatusText(item.status)} | ${item.memo || 'メモなし'}`.slice(0, 100);
+              } else if (category === 'anime') {
+                label = `${item.title}`.slice(0, 100);
+                description = `${item.watched_episodes || 0}/${item.total_episodes || 0}話 | ${this.getAnimeStatusText(item.status)}`.slice(0, 100);
+              } else if (category === 'manga') {
+                label = `${item.title}`.slice(0, 100);
+                const unit = item.format === 'volume' ? '巻' : '話';
+                description = `${item.read_count || 0}/${item.total_count || 0}${unit} | ${this.getMangaStatusText(item.reading_status)}`.slice(0, 100);
               } else if (category === 'activity') {
                 label = `${item.content}`.slice(0, 100);
                 description = `${this.getActivityStatusText(item.status)} | ${item.memo || 'メモなし'}`.slice(0, 100);
@@ -155,6 +186,11 @@ module.exports = {
                 return `📖 ${item.title} - ${item.author}`;
               } else if (category === 'movie') {
                 return `🎬 ${item.title}`;
+              } else if (category === 'anime') {
+                return `📺 ${item.title} (${item.watched_episodes || 0}/${item.total_episodes || 0}話)`;
+              } else if (category === 'manga') {
+                const unit = item.format === 'volume' ? '巻' : '話';
+                return `📖 ${item.title} (${item.read_count || 0}/${item.total_count || 0}${unit})`;
               } else if (category === 'activity') {
                 return `🎯 ${item.content}`;
               }
@@ -175,7 +211,7 @@ module.exports = {
     }
   },
 
-  // 🆕 特定アイテムの履歴を表示（選択式から呼び出し）
+  // 特定アイテムの履歴を表示（選択式から呼び出し・漫画対応）
   async showItemHistory(interaction, category, itemId) {
     try {
       console.log('=== レポート履歴検索開始 ===', { category, itemId });
@@ -188,12 +224,16 @@ module.exports = {
       const categoryEmoji = {
         'book': '📚',
         'movie': '🎬',
+        'anime': '📺',
+        'manga': '📖',
         'activity': '🎯'
       };
       
       const categoryName = {
         'book': '本',
         'movie': '映画',
+        'anime': 'アニメ',
+        'manga': '漫画',
         'activity': '活動'
       };
       
@@ -300,7 +340,7 @@ module.exports = {
     }
   },
 
-  // 既存のメソッドを継承（showRecent, searchReports, showCalendar, showAnalytics, exportReports）
+  // 最近のレポート表示（漫画対応）
   async showRecent(interaction) {
     try {
       const days = interaction.options.getInteger('days') || 7;
@@ -324,6 +364,8 @@ module.exports = {
       const groupedReports = {
         book: reports.filter(r => r.category === 'book'),
         movie: reports.filter(r => r.category === 'movie'),
+        anime: reports.filter(r => r.category === 'anime'),
+        manga: reports.filter(r => r.category === 'manga'),
         activity: reports.filter(r => r.category === 'activity')
       };
       
@@ -333,8 +375,8 @@ module.exports = {
         .setDescription(`📊 総数: **${reports.length}** 件のレポートが記録されています`)
         .setTimestamp();
       
-      const categoryEmoji = { book: '📚', movie: '🎬', activity: '🎯' };
-      const categoryName = { book: '本', movie: '映画', activity: '活動' };
+      const categoryEmoji = { book: '📚', movie: '🎬', anime: '📺', manga: '📖', activity: '🎯' };
+      const categoryName = { book: '本', movie: '映画', anime: 'アニメ', manga: '漫画', activity: '活動' };
       
       const summaryFields = [];
       Object.entries(groupedReports).forEach(([category, categoryReports]) => {
@@ -400,7 +442,7 @@ module.exports = {
     }
   },
 
-  // 検索機能（既存のコードを継承）
+  // 検索機能（漫画対応）
   async searchReports(interaction) {
     try {
       const keyword = interaction.options.getString('keyword');
@@ -433,7 +475,7 @@ module.exports = {
         .setDescription(`📊 **${reports.length}** 件のレポートが見つかりました`)
         .setTimestamp();
       
-      const categoryEmoji = { book: '📚', movie: '🎬', activity: '🎯' };
+      const categoryEmoji = { book: '📚', movie: '🎬', anime: '📺', manga: '📖', activity: '🎯' };
       
       const categoryCount = reports.reduce((acc, report) => {
         acc[report.category] = (acc[report.category] || 0) + 1;
@@ -502,6 +544,7 @@ module.exports = {
     }
   },
 
+  // カレンダー表示（既存のまま）
   async showCalendar(interaction) {
     try {
       const monthParam = interaction.options.getString('month');
@@ -590,6 +633,7 @@ module.exports = {
     }
   },
 
+  // 分析表示（漫画対応）
   async showAnalytics(interaction) {
     try {
       const reports = await googleSheets.getRecentReports(30);
@@ -604,6 +648,15 @@ module.exports = {
       const uniqueDays = new Set(reports.map(r => r.date)).size;
       const consistencyRate = Math.round((uniqueDays / 30) * 100);
       
+      // カテゴリ別統計（漫画対応）
+      const categoryStats = {
+        book: reports.filter(r => r.category === 'book').length,
+        movie: reports.filter(r => r.category === 'movie').length,
+        anime: reports.filter(r => r.category === 'anime').length,
+        manga: reports.filter(r => r.category === 'manga').length,
+        activity: reports.filter(r => r.category === 'activity').length
+      };
+      
       const embed = new EmbedBuilder()
         .setTitle('📊 レポート分析レポート（過去30日）')
         .setColor('#673AB7')
@@ -614,8 +667,28 @@ module.exports = {
             value: `総レポート数: **${totalReports}**件\n平均文字数: **${Math.round(averageLength)}**文字\n記録日数: **${uniqueDays}**/30日\n継続率: **${consistencyRate}%**`, 
             inline: true 
           }
-        )
-        .setFooter({ text: '継続的な記録で更に詳細な分析が可能になります！' })
+        );
+
+      // カテゴリ別統計を追加
+      const categoryFields = [];
+      const categoryEmoji = { book: '📚', movie: '🎬', anime: '📺', manga: '📖', activity: '🎯' };
+      const categoryName = { book: '本', movie: '映画', anime: 'アニメ', manga: '漫画', activity: '活動' };
+      
+      Object.entries(categoryStats).forEach(([category, count]) => {
+        if (count > 0) {
+          categoryFields.push({
+            name: `${categoryEmoji[category]} ${categoryName[category]}`,
+            value: `${count}件`,
+            inline: true
+          });
+        }
+      });
+      
+      if (categoryFields.length > 0) {
+        embed.addFields(...categoryFields);
+      }
+      
+      embed.setFooter({ text: '継続的な記録で更に詳細な分析が可能になります！' })
         .setTimestamp();
       
       await interaction.editReply({ embeds: [embed] });
@@ -626,6 +699,7 @@ module.exports = {
     }
   },
 
+  // エクスポート（既存のまま）
   async exportReports(interaction) {
     try {
       const format = interaction.options.getString('format') || 'text';
@@ -653,7 +727,7 @@ module.exports = {
     }
   },
 
-  // ヘルパーメソッド
+  // ヘルパーメソッド（漫画対応）
   async getItemInfo(category, id) {
     try {
       switch (category) {
@@ -661,6 +735,10 @@ module.exports = {
           return await googleSheets.getBookById(id);
         case 'movie':
           return await googleSheets.getMovieById(id);
+        case 'anime':
+          return await googleSheets.getAnimeById(id);
+        case 'manga':
+          return await googleSheets.getMangaById(id);
         case 'activity':
           return await googleSheets.getActivityById(id);
         default:
@@ -678,6 +756,10 @@ module.exports = {
       return item.title;
     } else if (category === 'movie') {
       return item.title;
+    } else if (category === 'anime') {
+      return item.title;
+    } else if (category === 'manga') {
+      return item.title;
     } else if (category === 'activity') {
       return item.content;
     }
@@ -689,6 +771,11 @@ module.exports = {
       return `📖 ${itemInfo.title}\n👤 ${itemInfo.author}`;
     } else if (category === 'movie') {
       return `🎬 ${itemInfo.title}`;
+    } else if (category === 'anime') {
+      return `📺 ${itemInfo.title}\n📊 ${itemInfo.watched_episodes || 0}/${itemInfo.total_episodes || 0}話`;
+    } else if (category === 'manga') {
+      const unit = itemInfo.format === 'volume' ? '巻' : '話';
+      return `📖 ${itemInfo.title}\n👤 ${itemInfo.author}\n📊 ${itemInfo.read_count || 0}/${itemInfo.total_count || 0}${unit}`;
     } else if (category === 'activity') {
       return `🎯 ${itemInfo.content}`;
     }
@@ -699,6 +786,8 @@ module.exports = {
     const colors = {
       'book': '#9C27B0',
       'movie': '#E91E63',
+      'anime': '#FF5722',
+      'manga': '#3F51B5',
       'activity': '#00BCD4'
     };
     return colors[category] || '#607D8B';
@@ -764,6 +853,7 @@ module.exports = {
     return Math.round(totalLength / reports.length);
   },
 
+  // ステータステキスト変換メソッド（漫画対応）
   getBookStatusText(status) {
     const texts = {
       'want_to_buy': '買いたい',
@@ -784,6 +874,27 @@ module.exports = {
     return texts[status] || status;
   },
 
+  getAnimeStatusText(status) {
+    const texts = {
+      'want_to_watch': '観たい',
+      'watching': '視聴中',
+      'completed': '完走済み',
+      'dropped': '中断',
+      'missed': '見逃し'
+    };
+    return texts[status] || status;
+  },
+
+  getMangaStatusText(status) {
+    const texts = {
+      'want_to_read': '読みたい',
+      'reading': '読書中',
+      'finished': '読了済み',
+      'dropped': '中断'
+    };
+    return texts[status] || status;
+  },
+
   getActivityStatusText(status) {
     const texts = {
       'planned': '予定中',
@@ -793,7 +904,7 @@ module.exports = {
     return texts[status] || status;
   },
 
-  // ページネーション対応
+  // ページネーション対応（漫画対応）
   async showHistoryItemSelectionWithPagination(interaction, category, items, page = 0) {
     const itemsPerPage = 25;
     const totalPages = Math.ceil(items.length / itemsPerPage);
@@ -812,6 +923,13 @@ module.exports = {
           } else if (category === 'movie') {
             label = `${item.title}`.slice(0, 100);
             description = `${this.getMovieStatusText(item.status)} | ${item.memo || 'メモなし'}`.slice(0, 100);
+          } else if (category === 'anime') {
+            label = `${item.title}`.slice(0, 100);
+            description = `${item.watched_episodes || 0}/${item.total_episodes || 0}話 | ${this.getAnimeStatusText(item.status)}`.slice(0, 100);
+          } else if (category === 'manga') {
+            label = `${item.title}`.slice(0, 100);
+            const unit = item.format === 'volume' ? '巻' : '話';
+            description = `${item.read_count || 0}/${item.total_count || 0}${unit} | ${this.getMangaStatusText(item.reading_status)}`.slice(0, 100);
           } else if (category === 'activity') {
             label = `${item.content}`.slice(0, 100);
             description = `${this.getActivityStatusText(item.status)} | ${item.memo || 'メモなし'}`.slice(0, 100);
@@ -853,8 +971,8 @@ module.exports = {
       }
     }
 
-    const categoryEmoji = { book: '📚', movie: '🎬', activity: '🎯' }[category];
-    const categoryName = { book: '本', movie: '映画', activity: '活動' }[category];
+    const categoryEmoji = { book: '📚', movie: '🎬', anime: '📺', manga: '📖', activity: '🎯' }[category];
+    const categoryName = { book: '本', movie: '映画', anime: 'アニメ', manga: '漫画', activity: '活動' }[category];
 
     const embed = new EmbedBuilder()
       .setTitle(`${categoryEmoji} ${categoryName}のレポート履歴`)
@@ -866,6 +984,11 @@ module.exports = {
             return `📖 ${item.title} - ${item.author}`;
           } else if (category === 'movie') {
             return `🎬 ${item.title}`;
+          } else if (category === 'anime') {
+            return `📺 ${item.title} (${item.watched_episodes || 0}/${item.total_episodes || 0}話)`;
+          } else if (category === 'manga') {
+            const unit = item.format === 'volume' ? '巻' : '話';
+            return `📖 ${item.title} (${item.read_count || 0}/${item.total_count || 0}${unit})`;
           } else if (category === 'activity') {
             return `🎯 ${item.content}`;
           }
