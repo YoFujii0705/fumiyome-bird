@@ -1171,11 +1171,11 @@ async getArticleInfo(articleId) {
   // === 漫画関連のメソッド ===（services/googleSheets.js に追加）
 
 /**
- * 全ての漫画を取得
+ * 全ての漫画を取得（スケジュール対応版）
  */
 async getAllMangas() {
   try {
-    console.log('🔍 getAllMangas 開始');
+    console.log('🔍 getAllMangas 開始（スケジュール対応）');
     
     if (!this.auth) {
       console.error('❌ Google Sheets認証がありません');
@@ -1184,10 +1184,10 @@ async getAllMangas() {
     
     const sheets = google.sheets({ version: 'v4', auth: this.auth });
     
-    console.log('📊 manga_masterシートからデータ取得中...');
+    console.log('📊 manga_masterシートからデータ取得中（スケジュール対応）...');
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: 'manga_master!A:P',
+      range: 'manga_master!A:P', // P列まで拡張
     });
     
     const rows = response.data.values;
@@ -1199,25 +1199,7 @@ async getAllMangas() {
     }
     
     // ヘッダー行を確認してログ出力
-    console.log('📋 ヘッダー行:', rows[0]);
-    
-    // manga_master の列構造：
-    // A列: ID
-    // B列: created_at (登録日時)
-    // C列: title (タイトル)
-    // D列: author (作者名)
-    // E列: type (作品タイプ)
-    // F列: format (形式)
-    // G列: total_count (総数)
-    // H列: read_count (読了数)
-    // I列: current_status (作品ステータス)
-    // J列: reading_status (読書ステータス)
-    // K列: memo (備考)
-    // L列: updated_at (更新日時)
-    // M列: start_date (読書開始日)
-    // N列: finish_date (読了完了日)
-    // O列: series_url (公式URL)
-    // P列: update_schedule (更新スケジュール)
+    console.log('📋 ヘッダー行（スケジュール対応）:', rows[0]);
     
     const mangas = rows.slice(1).map((row, index) => {
       try {
@@ -1236,11 +1218,11 @@ async getAllMangas() {
           updated_at: row[11] || '',           // L列: 更新日時
           start_date: row[12] || '',           // M列: 読書開始日
           finish_date: row[13] || '',          // N列: 読了完了日
-          series_url: row[14] || '',           // O列: 公式URL
-          update_schedule: row[15] || ''       // P列: 更新スケジュール
+          series_url: row[14] || '',           // O列: 公式URL 🆕
+          update_schedule: row[15] || ''       // P列: 更新スケジュール 🆕
         };
         
-        console.log(`📚 処理した漫画: ${manga.id} - ${manga.title} by ${manga.author} (${manga.read_count}/${manga.total_count || '?'}${manga.format === 'volume' ? '巻' : '話'}) [${manga.reading_status}]`);
+        console.log(`📚 処理した漫画（スケジュール対応）: ${manga.id} - ${manga.title} by ${manga.author} (${manga.read_count}/${manga.total_count || '?'}${manga.format === 'volume' ? '巻' : '話'}) [${manga.reading_status}] 📅${manga.update_schedule || '未設定'}`);
         return manga;
         
       } catch (error) {
@@ -1249,26 +1231,26 @@ async getAllMangas() {
       }
     }).filter(manga => manga !== null && manga.title && manga.title !== '不明なタイトル');
     
-    console.log(`✅ getAllMangas 完了: ${mangas.length}本取得`);
+    console.log(`✅ getAllMangas 完了（スケジュール対応）: ${mangas.length}本取得`);
     return mangas;
     
   } catch (error) {
-    console.error('❌ getAllMangas エラー:', error);
+    console.error('❌ getAllMangas エラー（スケジュール対応）:', error);
     throw error;
   }
 }
-
+  
 /**
- * IDで特定の漫画を取得
+ * IDで特定の漫画を取得（スケジュール対応版）
  */
 async getMangaById(id) {
   try {
-    console.log(`🔍 getMangaById 開始: ID ${id}`);
+    console.log(`🔍 getMangaById 開始（スケジュール対応）: ID ${id}`);
     
     const sheets = google.sheets({ version: 'v4', auth: this.auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: this.spreadsheetId,
-      range: 'manga_master!A:P',
+      range: 'manga_master!A:P', // P列まで拡張
     });
     
     const rows = response.data.values;
@@ -1296,25 +1278,30 @@ async getMangaById(id) {
       updated_at: mangaRow[11] || '',         // L列: 更新日時
       start_date: mangaRow[12] || '',         // M列: 読書開始日
       finish_date: mangaRow[13] || '',        // N列: 読了完了日
-      series_url: mangaRow[14] || '',         // O列: 公式URL
-      update_schedule: mangaRow[15] || ''     // P列: 更新スケジュール
+      series_url: mangaRow[14] || '',         // O列: 公式URL 🆕
+      update_schedule: mangaRow[15] || ''     // P列: 更新スケジュール 🆕
     };
     
-    console.log(`✅ getMangaById 完了: ${manga.title}`);
+    console.log(`✅ getMangaById 完了（スケジュール対応）: ${manga.title}`);
+    console.log(`📅 更新スケジュール: ${manga.update_schedule || '未設定'}`);
+    console.log(`🔗 公式URL: ${manga.series_url || '未設定'}`);
+    
     return manga;
     
   } catch (error) {
-    console.error('❌ getMangaById エラー:', error);
+    console.error('❌ getMangaById エラー（スケジュール対応）:', error);
     throw error;
   }
 }
-
+  
 /**
- * 漫画を追加
+ * 漫画を追加（連載スケジュール対応版）
  */
-async addManga(title, author, type = 'series', format = 'volume', totalCount = null, currentStatus = 'ongoing', memo = '', readingStatus = 'want_to_read') {
+async addManga(title, author, type = 'series', format = 'volume', totalCount = null, currentStatus = 'ongoing', memo = '', readingStatus = 'want_to_read', updateSchedule = '', seriesUrl = '') {
   try {
-    console.log(`📚 新しい漫画を追加: ${title} by ${author} [${type}/${format}] (${readingStatus})`);
+    console.log(`📚 新しい漫画を追加（スケジュール対応）: ${title} by ${author} [${type}/${format}] (${readingStatus})`);
+    console.log(`📅 更新スケジュール: ${updateSchedule || '未設定'}`);
+    console.log(`🔗 公式URL: ${seriesUrl || '未設定'}`);
     
     if (!this.auth) {
       console.log('認証なし - ダミーIDを返します');
@@ -1328,6 +1315,8 @@ async addManga(title, author, type = 'series', format = 'volume', totalCount = n
         read_count: 0,
         current_status: currentStatus,
         reading_status: readingStatus,
+        update_schedule: updateSchedule,
+        series_url: seriesUrl,
         registeredAt: new Date().toLocaleString('ja-JP')
       };
     }
@@ -1347,7 +1336,7 @@ async addManga(title, author, type = 'series', format = 'volume', totalCount = n
     const newId = maxId + 1;
     const now = new Date().toLocaleString('ja-JP');
     
-    // 新しい行を作成
+    // 新しい行を作成（連載スケジュール対応）
     // A:ID B:登録日時 C:タイトル D:作者名 E:作品タイプ F:形式 G:総数 H:読了数 I:作品ステータス J:読書ステータス K:備考 L:更新日時 M:開始日 N:完了日 O:公式URL P:更新スケジュール
     const newRow = [
       newId,           // A列: ID
@@ -1364,11 +1353,11 @@ async addManga(title, author, type = 'series', format = 'volume', totalCount = n
       now,             // L列: 更新日時
       '',              // M列: 読書開始日（空）
       '',              // N列: 読了完了日（空）
-      '',              // O列: 公式URL（空）
-      ''               // P列: 更新スケジュール（空）
+      seriesUrl || '', // O列: 公式URL 🆕
+      updateSchedule || '' // P列: 更新スケジュール 🆕
     ];
 
-    console.log('🔍 追加するデータ:', newRow);
+    console.log('🔍 追加するデータ（スケジュール対応）:', newRow);
 
     const range = 'manga_master!A:P';
     const operation = async () => {
@@ -1386,16 +1375,45 @@ async addManga(title, author, type = 'series', format = 'volume', totalCount = n
 
     await this.executeWithTimeout(operation, 10000);
 
-    console.log(`✅ 漫画を追加しました: ID ${newId} - ${title} (${readingStatus})`);
+    console.log(`✅ 漫画を追加しました（スケジュール対応）: ID ${newId} - ${title} (${readingStatus})`);
+    console.log(`📅 設定されたスケジュール: ${updateSchedule || '未設定'}`);
     
     return newId;
 
   } catch (error) {
-    console.error('❌ 漫画の追加エラー:', error.message);
+    console.error('❌ 漫画の追加エラー（スケジュール対応）:', error.message);
     throw error;
   }
 }
 
+  /**
+ * 通知スケジュールのNextIDを取得
+ */
+async getNotificationNextId() {
+  try {
+    const response = await this.getData('notification_schedules!A:A');
+    const rows = response || [];
+    
+    if (rows.length <= 1) {
+      console.log('notification_schedules は空です。ID 1 から開始します');
+      return 1;
+    }
+    
+    // 既存のIDを確認して最大値+1を返す
+    const ids = rows.slice(1)
+      .map(row => parseInt(row[0]))
+      .filter(id => !isNaN(id));
+    
+    const nextId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
+    console.log(`notification_schedules の次のID: ${nextId}`);
+    return nextId;
+    
+  } catch (error) {
+    console.error('notification_schedules NextID取得エラー:', error);
+    return Math.floor(Date.now() / 1000) % 10000;
+  }
+}
+  
 /**
  * 漫画の読書ステータスを更新
  */
