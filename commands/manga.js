@@ -67,7 +67,32 @@ module.exports = {
           option.setName('series_url')
             .setDescription('公式サイト・連載サイトのURL')
             .setRequired(false)))
-    
+
+    .addSubcommand(subcommand =>
+  subcommand
+    .setName('test')
+    .setDescription('🧪 通知テスト機能（開発・デバッグ用）')
+    .addStringOption(option =>
+      option
+        .setName('action')
+        .setDescription('テスト内容')
+        .setRequired(true)
+        .addChoices(
+          { name: '指定漫画の通知テスト', value: 'notification' },
+          { name: '全アクティブ通知テスト', value: 'all_notifications' },
+          { name: '通知設定ステータス確認', value: 'check_status' },
+          { name: '次回通知日時更新', value: 'update_schedule' }
+        ))
+    .addIntegerOption(option =>
+      option
+        .setName('manga_id')
+        .setDescription('漫画ID（notification, check_status, update_scheduleで使用）')
+        .setRequired(false)))
+
+.addSubcommand(subcommand =>
+  subcommand
+    .setName('debug')
+    .setDescription('🔧 通知設定デバッグ情報表示（開発用）'))
     .addSubcommand(subcommand =>
       subcommand
         .setName('read')
