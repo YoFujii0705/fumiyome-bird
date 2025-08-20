@@ -3,7 +3,7 @@ const { SlashCommandBuilder } = require('discord.js');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('stats')
-    .setDescription('📊 統計情報の表示 - 活動データの分析')
+    .setDescription('📊 統計情報の表示 - 活動データの分析（漫画含む）')
     .addSubcommand(subcommand =>
       subcommand
         .setName('summary')
@@ -24,10 +24,15 @@ module.exports = {
         .setName('books')
         .setDescription('📚 読書統計詳細'))
     
-    .addSubcommand(subcommand => // 🆕 アニメサブコマンド追加
+    .addSubcommand(subcommand =>
       subcommand
         .setName('anime')
-        .setDescription('アニメ視聴統計の詳細を表示'))
+        .setDescription('📺 アニメ視聴統計詳細'))
+    
+    .addSubcommand(subcommand => // 🆕 漫画サブコマンド追加
+      subcommand
+        .setName('manga')
+        .setDescription('📖 漫画読書統計詳細'))
     
     .addSubcommand(subcommand =>
       subcommand
@@ -58,12 +63,12 @@ module.exports = {
               { name: '今月 vs 先月', value: 'month' },
               { name: '今年 vs 昨年', value: 'year' }
             ))),
-
+  
   // コマンドの実行処理（ハンドラーに委譲）
   async execute(interaction) {
     throw new Error('このコマンドはハンドラーで処理されます');
   },
-
+  
   // コマンドのメタデータ
   category: 'analytics',
   permissions: [],
@@ -75,23 +80,35 @@ module.exports = {
     '/stats weekly',
     '/stats monthly',
     '/stats books',
-    '/stats current'
+    '/stats anime',
+    '/stats manga', // 🆕 漫画例追加
+    '/stats current',
+    '/stats trends',
+    '/stats goals',
+    '/stats compare period:week'
   ],
-
+  
   // ヘルプテキスト
   help: {
-    description: '活動データの統計情報を表示する機能です。進捗の可視化と分析をサポートします。',
+    description: '活動データの統計情報を表示する機能です。進捗の可視化と分析をサポートします（漫画含む）。',
     usage: '以下の統計レポートが利用できます：',
     subcommands: {
-      summary: '本・映画・活動の全体的な統計サマリーを表示',
+      summary: '本・映画・アニメ・漫画・活動の全体的な統計サマリーを表示',
       weekly: '今週完了したアイテム数と活動状況を表示',
       monthly: '今月の実績と達成状況を詳細表示',
-      books: '読書に特化した詳細統計（読了数、ペース、分析）',
-      current: '現在進行中のアイテム一覧と進捗状況'
+      books: '読書に特化した詳細統計（読了冊数、ペース、分析）',
+      anime: 'アニメ視聴に特化した統計（完走数、視聴ペース、分析）',
+      manga: '漫画読書に特化した統計（読了数、読書ペース、分析）', // 🆕 漫画説明追加
+      current: '現在進行中のアイテム一覧と進捗状況',
+      trends: '活動パターンとトレンド分析',
+      goals: '設定した目標に対する達成状況',
+      compare: '期間別の活動量比較分析'
     },
     metrics: [
       '📚 読書: 読了冊数、読書ペース、完読率',
       '🎬 映画: 視聴本数、完了率',
+      '📺 アニメ: 完走数、視聴ペース、継続率',
+      '📖 漫画: 読了数、読書ペース、進捗率', // 🆕 漫画メトリクス追加
       '🎯 活動: 完了率、継続性、達成度',
       '📝 記録: 日報投稿頻度、記録継続日数'
     ],
@@ -99,7 +116,8 @@ module.exports = {
       '📈 進捗の可視化でモチベーション向上',
       '🎯 達成度の明確化',
       '📊 改善点の発見',
-      '🏆 達成感の増強と継続意欲の向上'
+      '🏆 達成感の増強と継続意欲の向上',
+      '📖 漫画読書習慣の分析と改善' // 🆕 漫画ベネフィット追加
     ]
   }
 };
