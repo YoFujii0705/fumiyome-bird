@@ -273,6 +273,76 @@ module.exports = {
     }
   },
 
+  // 🆕 新規追加: 読書開始時の通知有効化処理
+  async activateNotificationForManga(mangaId) {
+    try {
+      console.log(`🔔 通知有効化開始: 漫画ID ${mangaId}`);
+      
+      // notification_schedulesから該当の漫画通知を検索
+      const notificationData = await googleSheets.getData('notification_schedules!A:I');
+      if (!notificationData || notificationData.length <= 1) {
+        console.log('通知設定が見つかりません');
+        return false;
+      }
+      
+      // 該当漫画の通知レコードを検索
+      let targetRowIndex = -1;
+      let targetNotification = null;
+      
+      for (let i = 1; i < notificationData.length; i++) {
+        const row = notificationData[i];
+        const type = row[1]; // B列: Type
+        const relatedId = row[2]; // C列: Related_ID
+        const status = row[5]; // F列: Status
+        
+        if (type === 'manga_update' && parseInt(relatedId) === parseInt(mangaId)) {
+          targetRowIndex = i + 1; // Google Sheetsの行番号（1ベース + ヘッダー）
+          targetNotification = {
+            id: row[0],
+            title: row[3],
+            scheduleData: JSON.parse(row[4] || '{}'),
+            currentStatus: status
+          };
+          break;
+        }
+      }
+      
+      if (targetRowIndex === -1) {
+        console.log(`漫画ID ${mangaId} の通知設定が見つかりません`);
+        return false;
+      }
+      
+      if (targetNotification.currentStatus === 'active') {
+        console.log('通知は既に有効化されています');
+        return true;
+      }
+      
+      // statusをinactiveからactiveに変更
+      const now = new Date().toISOString();
+      const nextNotification = this.calculateNextNotification(targetNotification.scheduleData);
+      
+      // F列(Status)、H列(Updated_At)、I列(Next_Notification)を更新
+      const updateRange = `notification_schedules!F${targetRowIndex}:I${targetRowIndex}`;
+      const updateValues = ['active', now, nextNotification];
+      
+      const success = await googleSheets.updateData(updateRange, updateValues);
+      
+      if (success) {
+        console.log(`✅ 通知有効化完了: ${targetNotification.title}`);
+        console.log(`📅 次回通知予定: ${nextNotification}`);
+        return true;
+      } else {
+        console.log('❌ 通知有効化に失敗しました');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('通知有効化エラー:', error);
+      return false;
+    }
+  },
+
+
   // 🆕 選択式 - 読書中漫画から完走選択
   async handleFinish(interaction) {
     try {
@@ -1157,37 +1227,54 @@ async saveNotificationSchedule(mangaId, title, scheduleData) {
   }
 },
 
-// 🆕 次回通知日時計算メソッドを追加
-calculateNextNotification(scheduleData) {
-  const now = new Date();
-  
-  switch (scheduleData.type) {
-    case 'weekly':
-      const nextWeekly = new Date(now);
-      const daysUntilNext = (scheduleData.dayOfWeek + 7 - now.getDay()) % 7;
-      nextWeekly.setDate(now.getDate() + (daysUntilNext === 0 ? 7 : daysUntilNext));
-      nextWeekly.setHours(9, 0, 0, 0); // 朝9時に通知
-      return nextWeekly.toISOString();
-      
-    case 'monthly':
-      const nextMonthly = new Date(now.getFullYear(), now.getMonth(), scheduleData.dayOfMonth);
-      if (nextMonthly <= now) {
-        nextMonthly.setMonth(nextMonthly.getMonth() + 1);
-      }
-      nextMonthly.setHours(9, 0, 0, 0);
-      return nextMonthly.toISOString();
-      
-    case 'biweekly':
-      // 隔週の計算は複雑なので、週次として扱い後で調整
-      const nextBiweekly = new Date(now);
-      nextBiweekly.setDate(now.getDate() + 7);
-      nextBiweekly.setHours(9, 0, 0, 0);
-      return nextBiweekly.toISOString();
-      
-    default:
+// 🆕 次回通知日時計算メソッド（既存のメソッドを移動・改良）
+  calculateNextNotification(scheduleData) {
+    if (!scheduleData || !scheduleData.type) {
       return null;
-  }
-},
+    }
+    
+    const now = new Date();
+    
+    switch (scheduleData.type) {
+      case 'weekly':
+        const nextWeekly = new Date(now);
+        const currentDay = now.getDay();
+        const targetDay = scheduleData.dayOfWeek;
+        
+        let daysUntilNext = (targetDay - currentDay + 7) % 7;
+        if (daysUntilNext === 0) {
+          daysUntilNext = 7; // 今日が更新日なら来週
+        }
+        
+        nextWeekly.setDate(now.getDate() + daysUntilNext);
+        nextWeekly.setHours(9, 0, 0, 0); // 朝9時に通知
+        return nextWeekly.toISOString();
+        
+      case 'monthly':
+        const nextMonthly = new Date(now.getFullYear(), now.getMonth(), scheduleData.dayOfMonth, 9, 0, 0, 0);
+        
+        if (nextMonthly <= now) {
+          nextMonthly.setMonth(nextMonthly.getMonth() + 1);
+        }
+        
+        return nextMonthly.toISOString();
+        
+      case 'biweekly':
+        // 隔週の場合は週次として計算し、後で調整
+        const nextBiweekly = new Date(now);
+        nextBiweekly.setDate(now.getDate() + 14); // 2週間後
+        nextBiweekly.setHours(9, 0, 0, 0);
+        return nextBiweekly.toISOString();
+        
+      case 'irregular':
+      case 'completed':
+        return null; // 通知なし
+        
+      default:
+        console.log(`未知のスケジュールタイプ: ${scheduleData.type}`);
+        return null;
+    }
+  },
 
 // 🆕 ヘルパーメソッドを追加
 getDayName(dayOfWeek) {
