@@ -128,6 +128,9 @@ client.on('interactionCreate', async interaction => {
      else if (interaction.customId.startsWith('anime_')) {
      await handleAnimeSelection(interaction);
        }
+      else if (interaction.customId.startsWith('manga_')) {
+     await handleMangaSelection(interaction);
+       }
       // 🆕 レポート関連の選択メニュー処理
       else if (interaction.customId.startsWith('report_')) {
         await handleReportSelection(interaction);
@@ -167,6 +170,9 @@ client.on('interactionCreate', async interaction => {
       else if (interaction.customId.startsWith('anime_')) {
 　　　  await handleAnimePagination(interaction);
 　　　　}
+        else if (interaction.customId.startsWith('manga_')) {
+  await handleMangaPagination(interaction);
+      }
       // 🆕 レポート・レポート履歴のページネーション処理
       else if (interaction.customId.startsWith('report_') || interaction.customId.startsWith('reports_')) {
         await handleReportPagination(interaction);
@@ -1204,6 +1210,483 @@ function getGenreText(genre) {
   };
   return genres[genre] || genre;
 }
+
+/**
+ * 漫画の選択メニュー処理
+ */
+async function handleMangaSelection(interaction) {
+  try {
+    const selectedMangaId = interaction.values[0];
+    const customId = interaction.customId;
+    
+    console.log(`📚 漫画選択処理開始: ${customId}, ID: ${selectedMangaId}`);
+    
+    // GoogleSheetsサービスの状態確認
+    if (!googleSheets || !googleSheets.auth) {
+      console.error('❌ GoogleSheetsサービスが利用できません');
+      await interaction.editReply({ 
+        content: '❌ データベース接続に問題があります。しばらく待ってから再試行してください。', 
+        components: [] 
+      });
+      return;
+    }
+
+    // タイムアウト設定（30秒）
+    const timeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('処理がタイムアウトしました')), 30000)
+    );
+
+    // 📚 巻数/話数を読了
+    if (customId.startsWith('manga_read_select')) {
+      console.log('📚 巻数/話数読了処理開始');
+      
+      const readPromise = googleSheets.readNextManga(selectedMangaId);
+      const readManga = await Promise.race([readPromise, timeout]);
+      
+      if (readManga) {
+        const unit = finishedManga.format === 'volume' ? '巻' : '話';
+        
+        const embed = new EmbedBuilder()
+          .setTitle('🎉 漫画読了おめでとうございます！')
+          .setColor('#FFD700')
+          .setDescription('素晴らしい達成感ですね！また一つ素晴らしい作品を読了されました📚✨')
+          .addFields(
+            { name: 'ID', value: finishedManga.id.toString(), inline: true },
+            { name: 'タイトル', value: finishedManga.title, inline: true },
+            { name: '作者', value: finishedManga.author, inline: true },
+            { name: 'ステータス変更', value: '📚 読書中 → ✅ 読了済み', inline: false }
+          )
+          .setFooter({ text: '感想を /report manga で記録してみませんか？' })
+          .setTimestamp();
+        
+        if (finishedManga.total_count) {
+          embed.addFields({ name: `総${unit}数`, value: `${finishedManga.total_count}${unit}`, inline: true });
+        }
+        
+        if (finishedManga.memo) {
+          embed.addFields({ name: '備考', value: finishedManga.memo, inline: false });
+        }
+        
+        console.log('✅ 読了完了記録完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 読了完了記録失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定された漫画が見つからないか、既に読了済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 💔 読書中断
+    else if (customId.startsWith('manga_drop_select')) {
+      console.log('💔 読書中断処理開始');
+      
+      const dropPromise = googleSheets.dropManga(selectedMangaId);
+      const droppedManga = await Promise.race([dropPromise, timeout]);
+      
+      if (droppedManga) {
+        const embed = new EmbedBuilder()
+          .setTitle('💔 漫画読書を中断しました')
+          .setColor('#FF9800')
+          .setDescription('大丈夫です！時には見送ることも必要ですね。また機会があればチャレンジしてみてください。')
+          .addFields(
+            { name: 'ID', value: droppedManga.id.toString(), inline: true },
+            { name: 'タイトル', value: droppedManga.title, inline: true },
+            { name: '作者', value: droppedManga.author, inline: true },
+            { name: 'ステータス変更', value: '📚 読書中 → 💔 中断', inline: false }
+          )
+          .setFooter({ text: '新しい漫画を探してみましょう！' })
+          .setTimestamp();
+        
+        if (droppedManga.memo) {
+          embed.addFields({ name: '備考', value: droppedManga.memo, inline: false });
+        }
+        
+        console.log('✅ 読書中断完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+      } else {
+        console.log('❌ 読書中断失敗');
+        await interaction.editReply({ 
+          content: '❌ 指定された漫画が見つからないか、既に処理済みです。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 📊 進捗表示
+    else if (customId.startsWith('manga_progress_select')) {
+      console.log('📊 進捗表示処理開始');
+      
+      const progressPromise = googleSheets.getMangaById(selectedMangaId);
+      const mangaInfo = await Promise.race([progressPromise, timeout]);
+      
+      if (mangaInfo) {
+        const unit = mangaInfo.format === 'volume' ? '巻' : '話';
+        const percentage = mangaInfo.total_count && mangaInfo.total_count > 0 
+          ? Math.round((mangaInfo.read_count / mangaInfo.total_count) * 100) 
+          : null;
+        const progressBar = getMangaProgressBar(mangaInfo.read_count, mangaInfo.total_count);
+        
+        const statusText = {
+          'want_to_read': '📖 読みたい',
+          'reading': '📚 読書中',
+          'finished': '✅ 読了済み',
+          'dropped': '💔 中断'
+        };
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📊 漫画読書進捗')
+          .setColor('#3F51B5')
+          .setDescription(`📚 ${mangaInfo.title}`)
+          .addFields(
+            { name: 'ID', value: mangaInfo.id.toString(), inline: true },
+            { name: '作者', value: mangaInfo.author, inline: true },
+            { name: 'ステータス', value: statusText[mangaInfo.reading_status] || mangaInfo.reading_status, inline: true },
+            { name: '形式', value: getMangaTypeFormatText(mangaInfo.type, mangaInfo.format), inline: true },
+            { name: '作品状態', value: mangaInfo.current_status === 'completed' ? '完結済み' : '連載中/未完結', inline: true },
+            { name: '進捗', value: `${mangaInfo.read_count}${mangaInfo.total_count ? `/${mangaInfo.total_count}` : ''}${unit}`, inline: true }
+          )
+          .setTimestamp();
+        
+        if (percentage !== null) {
+          embed.addFields(
+            { name: '進捗率', value: `${percentage}%`, inline: true },
+            { name: '進捗バー', value: progressBar, inline: false }
+          );
+        } else {
+          embed.addFields({ name: '進捗バー', value: progressBar, inline: false });
+        }
+        
+        // 日付情報がある場合のみ追加
+        if (mangaInfo.start_date && mangaInfo.start_date.trim() !== '') {
+          embed.addFields({ name: '読書開始日', value: mangaInfo.start_date, inline: true });
+        }
+        if (mangaInfo.finish_date && mangaInfo.finish_date.trim() !== '') {
+          embed.addFields({ name: '読了完了日', value: mangaInfo.finish_date, inline: true });
+        }
+        
+        if (mangaInfo.memo && mangaInfo.memo.trim() !== '') {
+          embed.addFields({ name: '備考', value: mangaInfo.memo, inline: false });
+        }
+        
+        // ステータスに応じたアクションヒント
+        let actionHint = '';
+        switch (mangaInfo.reading_status) {
+          case 'want_to_read':
+            actionHint = '読書開始: /manga start（選択式）';
+            break;
+          case 'reading':
+            actionHint = `${unit}記録: /manga read | 読了記録: /manga finish（選択式）`;
+            break;
+          case 'finished':
+            actionHint = '感想記録: /report manga（選択式）';
+            break;
+          case 'dropped':
+            actionHint = '再チャレンジしたい場合は新しく追加してください';
+            break;
+        }
+        
+        if (actionHint) {
+          embed.setFooter({ text: actionHint });
+        }
+        
+        console.log('✅ 進捗表示完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+        
+      } else {
+        console.log('❌ 漫画が見つからない');
+        await interaction.editReply({ 
+          content: '❌ 指定された漫画の進捗情報が見つかりません。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 📄 詳細情報表示
+    else if (customId.startsWith('manga_info_select')) {
+      console.log('📄 詳細情報取得開始');
+      
+      const infoPromise = googleSheets.getMangaById(selectedMangaId);
+      const mangaInfo = await Promise.race([infoPromise, timeout]);
+      
+      console.log('📚 取得した漫画情報:', mangaInfo);
+      
+      if (mangaInfo) {
+        const unit = mangaInfo.format === 'volume' ? '巻' : '話';
+        const statusText = {
+          'want_to_read': '📖 読みたい',
+          'reading': '📚 読書中',
+          'finished': '✅ 読了済み',
+          'dropped': '💔 中断'
+        };
+        
+        const embed = new EmbedBuilder()
+          .setTitle('📄 漫画の詳細情報')
+          .setColor('#3F51B5')
+          .setDescription(`📚 ${mangaInfo.title}`)
+          .addFields(
+            { name: 'ID', value: mangaInfo.id.toString(), inline: true },
+            { name: '作者', value: mangaInfo.author, inline: true },
+            { name: 'ステータス', value: statusText[mangaInfo.reading_status] || mangaInfo.reading_status, inline: true },
+            { name: '形式', value: getMangaTypeFormatText(mangaInfo.type, mangaInfo.format), inline: true },
+            { name: '作品状態', value: mangaInfo.current_status === 'completed' ? '完結済み' : '連載中/未完結', inline: true },
+            { name: '読了数', value: `${mangaInfo.read_count}${unit}`, inline: true }
+          )
+          .setTimestamp();
+        
+        if (mangaInfo.total_count) {
+          embed.addFields({ 
+            name: `総${unit}数`, 
+            value: `${mangaInfo.total_count}${unit}`, 
+            inline: true 
+          });
+        }
+        
+        // 日付情報がある場合のみ追加
+        if (mangaInfo.created_at && mangaInfo.created_at.trim() !== '') {
+          embed.addFields({ name: '登録日', value: mangaInfo.created_at, inline: true });
+        }
+        if (mangaInfo.start_date && mangaInfo.start_date.trim() !== '') {
+          embed.addFields({ name: '読書開始日', value: mangaInfo.start_date, inline: true });
+        }
+        if (mangaInfo.finish_date && mangaInfo.finish_date.trim() !== '') {
+          embed.addFields({ name: '読了完了日', value: mangaInfo.finish_date, inline: true });
+        }
+        
+        if (mangaInfo.series_url && mangaInfo.series_url.trim() !== '') {
+          embed.addFields({ name: '公式URL', value: mangaInfo.series_url, inline: false });
+        }
+        
+        if (mangaInfo.memo && mangaInfo.memo.trim() !== '') {
+          embed.addFields({ name: '備考', value: mangaInfo.memo, inline: false });
+        }
+        
+        // ステータスに応じたアクションヒント
+        let actionHint = '';
+        switch (mangaInfo.reading_status) {
+          case 'want_to_read':
+            actionHint = '読書開始: /manga start（選択式）';
+            break;
+          case 'reading':
+            actionHint = `${unit}記録: /manga read | 読了記録: /manga finish（選択式）`;
+            break;
+          case 'finished':
+            actionHint = '感想記録: /report manga（選択式）';
+            break;
+          case 'dropped':
+            actionHint = '再チャレンジしたい場合は新しく追加してください';
+            break;
+        }
+        
+        if (actionHint) {
+          embed.setFooter({ text: actionHint });
+        }
+        
+        console.log('✅ 詳細情報表示完了');
+        await interaction.editReply({ embeds: [embed], components: [] });
+        
+      } else {
+        console.log('❌ 漫画が見つからない');
+        await interaction.editReply({ 
+          content: '❌ 指定された漫画の詳細情報が見つかりません。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🔄 ページネーション処理
+    else if (customId.includes('_page_')) {
+      console.log('📄 ページネーション処理');
+      
+      const parts = customId.split('_');
+      const action = parts[1]; // read, start, finish, drop, progress, info
+      const page = parseInt(parts[parts.length - 1]);
+      
+      console.log(`ページネーション: ${action}, ページ: ${page}`);
+      
+      // 各アクションに応じたデータを取得
+      let mangas = [];
+      switch (action) {
+        case 'read':
+        case 'finish':
+        case 'drop':
+          mangas = await Promise.race([googleSheets.getMangasByStatus('reading'), timeout]);
+          break;
+        case 'start':
+          mangas = await Promise.race([googleSheets.getMangasByStatus('want_to_read'), timeout]);
+          break;
+        case 'progress':
+        case 'info':
+          mangas = await Promise.race([googleSheets.getAllMangas(), timeout]);
+          break;
+      }
+      
+      if (mangas && mangas.length > 0) {
+        const mangaHandler = require('./handlers/mangaHandler');
+        
+        switch (action) {
+          case 'read':
+            await mangaHandler.handleReadWithPagination(interaction, mangas, page);
+            break;
+          case 'start':
+            await mangaHandler.handleStartWithPagination(interaction, mangas, page);
+            break;
+          case 'finish':
+            await mangaHandler.handleFinishWithPagination(interaction, mangas, page);
+            break;
+          case 'drop':
+            await mangaHandler.handleDropWithPagination(interaction, mangas, page);
+            break;
+          case 'progress':
+            await mangaHandler.handleProgressWithPagination(interaction, mangas, page);
+            break;
+          case 'info':
+            await mangaHandler.handleInfoWithPagination(interaction, mangas, page);
+            break;
+        }
+      } else {
+        await interaction.editReply({ 
+          content: '❌ データの取得に失敗しました。', 
+          components: [] 
+        });
+      }
+    }
+    
+    // 🔄 その他の処理
+    else {
+      console.log('❓ 不明な選択処理:', customId);
+      await interaction.editReply({ 
+        content: '❌ 不明な操作です。', 
+        components: [] 
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ handleMangaSelection エラー:', error);
+    console.error('❌ エラーメッセージ:', error.message);
+    console.error('❌ エラースタック:', error.stack);
+    
+    // エラーの種類に応じたメッセージ
+    let errorMessage = '❌ 漫画の選択処理中にエラーが発生しました。';
+    
+    if (error.message.includes('タイムアウト')) {
+      errorMessage = '❌ 処理がタイムアウトしました。ネットワーク接続を確認してください。';
+    } else if (error.message.includes('認証')) {
+      errorMessage = '❌ データベース認証エラーです。管理者に連絡してください。';
+    } else if (error.message.includes('権限')) {
+      errorMessage = '❌ データベースアクセス権限がありません。管理者に連絡してください。';
+    }
+    
+    try {
+      await interaction.editReply({ 
+        content: errorMessage + '\n\n🔧 詳細: ' + error.message, 
+        components: [] 
+      });
+    } catch (replyError) {
+      console.error('❌ エラー応答送信失敗:', replyError);
+      
+      // 最後の手段として、新しい応答を試行
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ 
+            content: errorMessage, 
+            ephemeral: true 
+          });
+        }
+      } catch (finalError) {
+        console.error('❌ 最終エラー応答も失敗:', finalError);
+      }
+    }
+  }
+}
+
+/**
+ * 漫画のページネーション処理
+ */
+async function handleMangaPagination(interaction) {
+  const customId = interaction.customId;
+  
+  if (customId.includes('manga_read_')) {
+    const page = parseInt(customId.split('_').pop());
+    const readingMangas = await googleSheets.getMangasByStatus('reading');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const mangaHandler = require('./handlers/mangaHandler');
+      await mangaHandler.handleReadWithPagination(interaction, readingMangas, page);
+    }
+  }
+  
+  else if (customId.includes('manga_start_')) {
+    const page = parseInt(customId.split('_').pop());
+    const wantToReadMangas = await googleSheets.getMangasByStatus('want_to_read');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const mangaHandler = require('./handlers/mangaHandler');
+      await mangaHandler.handleStartWithPagination(interaction, wantToReadMangas, page);
+    }
+  }
+  
+  else if (customId.includes('manga_finish_')) {
+    const page = parseInt(customId.split('_').pop());
+    const readingMangas = await googleSheets.getMangasByStatus('reading');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const mangaHandler = require('./handlers/mangaHandler');
+      await mangaHandler.handleFinishWithPagination(interaction, readingMangas, page);
+    }
+  }
+  
+  else if (customId.includes('manga_drop_')) {
+    const page = parseInt(customId.split('_').pop());
+    const readingMangas = await googleSheets.getMangasByStatus('reading');
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const mangaHandler = require('./handlers/mangaHandler');
+      await mangaHandler.handleDropWithPagination(interaction, readingMangas, page);
+    }
+  }
+  
+  else if (customId.includes('manga_progress_')) {
+    const page = parseInt(customId.split('_').pop());
+    const allMangas = await googleSheets.getAllMangas();
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const mangaHandler = require('./handlers/mangaHandler');
+      await mangaHandler.handleProgressWithPagination(interaction, allMangas, page);
+    }
+  }
+  
+  else if (customId.includes('manga_info_')) {
+    const page = parseInt(customId.split('_').pop());
+    const allMangas = await googleSheets.getAllMangas();
+    
+    if (customId.includes('_prev_') || customId.includes('_next_')) {
+      const mangaHandler = require('./handlers/mangaHandler');
+      await mangaHandler.handleInfoWithPagination(interaction, allMangas, page);
+    }
+  }
+}
+
+// ヘルパー関数
+function getMangaTypeFormatText(type, format) {
+  const typeText = type === 'series' ? 'シリーズ' : '読切';
+  const formatText = format === 'volume' ? '単行本' : '話数';
+  return `${typeText}・${formatText}`;
+}
+
+function getMangaProgressBar(readCount, totalCount) {
+  if (!totalCount || totalCount === 0) {
+    return `🔄 ${readCount}巻/話 読了中`;
+  }
+  
+  const percentage = Math.round((readCount / totalCount) * 100);
+  const filledBars = Math.round((readCount / totalCount) * 10);
+  const emptyBars = 10 - filledBars;
+  
+  return '█'.repeat(filledBars) + '░'.repeat(emptyBars) + ` ${percentage}%`;
+}
+
 
 // 🆕 映画の選択メニュー処理
 async function handleMovieSelection(interaction) {
