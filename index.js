@@ -1305,47 +1305,76 @@ async function handleMangaSelection(interaction) {
     }
     
     // 🚀 読書開始
-    else if (customId.startsWith('manga_start_select')) {
-      console.log('🚀 読書開始処理開始');
-      
-      const startPromise = googleSheets.startReadingManga(selectedMangaId);
-      const startedManga = await Promise.race([startPromise, timeout]);
-      
-      if (startedManga) {
-        const unit = startedManga.format === 'volume' ? '巻' : '話';
-        
-        const embed = new EmbedBuilder()
-          .setTitle('🚀 漫画読書開始！')
-          .setColor('#FF9800')
-          .setDescription('素晴らしい！新しい漫画の読書が始まりますね！📚✨')
-          .addFields(
-            { name: 'ID', value: startedManga.id.toString(), inline: true },
-            { name: 'タイトル', value: startedManga.title, inline: true },
-            { name: '作者', value: startedManga.author, inline: true },
-            { name: '形式', value: getMangaTypeFormatText(startedManga.type, startedManga.format), inline: true },
-            { name: 'ステータス変更', value: '📖 読みたい → 📚 読書中', inline: false }
-          )
-          .setFooter({ text: '巻数/話数を読了したら /manga read で記録しましょう！' })
-          .setTimestamp();
-        
-        if (startedManga.total_count) {
-          embed.addFields({ name: `総${unit}数`, value: `${startedManga.total_count}${unit}`, inline: true });
-        }
-        
-        if (startedManga.memo) {
-          embed.addFields({ name: '備考', value: startedManga.memo, inline: false });
-        }
-        
-        console.log('✅ 読書開始完了');
-        await interaction.editReply({ embeds: [embed], components: [] });
-      } else {
-        console.log('❌ 読書開始失敗');
-        await interaction.editReply({ 
-          content: '❌ 指定された漫画が見つからないか、既に読書開始済みです。', 
-          components: [] 
-        });
+else if (customId.startsWith('manga_start_select')) {
+  console.log('🚀 読書開始処理開始');
+  
+  const startPromise = googleSheets.startReadingManga(selectedMangaId);
+  const startedManga = await Promise.race([startPromise, timeout]);
+  
+  if (startedManga) {
+    // 🆕 通知有効化を実行
+    let notificationActivated = false;
+    try {
+      // mangaHandlerの通知有効化メソッドを呼び出し
+      const mangaHandler = require('./handlers/mangaHandler');
+      if (mangaHandler.activateNotificationForManga) {
+        notificationActivated = await mangaHandler.activateNotificationForManga(selectedMangaId);
+        console.log(`🔔 通知有効化結果: ${notificationActivated}`);
       }
+    } catch (notificationError) {
+      console.error('🔔 通知有効化エラー:', notificationError);
+      // 通知エラーでも読書開始は成功とする
     }
+    
+    const unit = startedManga.format === 'volume' ? '巻' : '話';
+    
+    const embed = new EmbedBuilder()
+      .setTitle('🚀 漫画読書開始！')
+      .setColor('#FF9800')
+      .setDescription('素晴らしい！新しい漫画の読書が始まりますね！📚✨')
+      .addFields(
+        { name: 'ID', value: startedManga.id.toString(), inline: true },
+        { name: 'タイトル', value: startedManga.title, inline: true },
+        { name: '作者', value: startedManga.author, inline: true },
+        { name: '形式', value: getMangaTypeFormatText(startedManga.type, startedManga.format), inline: true },
+        { name: 'ステータス変更', value: '📖 読みたい → 📚 読書中', inline: false }
+      )
+      .setFooter({ text: '巻数/話数を読了したら /manga read で記録しましょう！' })
+      .setTimestamp();
+    
+    if (startedManga.total_count) {
+      embed.addFields({ name: `総${unit}数`, value: `${startedManga.total_count}${unit}`, inline: true });
+    }
+    
+    // 🆕 通知有効化の結果を表示
+    if (notificationActivated) {
+      embed.addFields({ 
+        name: '🔔 通知設定', 
+        value: '✅ 更新通知が有効化されました！設定された頻度で通知が送信されます。', 
+        inline: false 
+      });
+    } else {
+      embed.addFields({ 
+        name: '🔔 通知設定', 
+        value: '⚠️ 通知設定がないか、有効化に失敗しました。手動で設定を確認してください。', 
+        inline: false 
+      });
+    }
+    
+    if (startedManga.memo) {
+      embed.addFields({ name: '備考', value: startedManga.memo, inline: false });
+    }
+    
+    console.log('✅ 読書開始完了');
+    await interaction.editReply({ embeds: [embed], components: [] });
+  } else {
+    console.log('❌ 読書開始失敗');
+    await interaction.editReply({ 
+      content: '❌ 指定された漫画が見つからないか、既に読書開始済みです。', 
+      components: [] 
+    });
+  }
+}
     
     // 🎉 読書完了
     else if (customId.startsWith('manga_finish_select')) {
