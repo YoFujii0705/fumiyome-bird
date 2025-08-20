@@ -1116,6 +1116,139 @@ module.exports = {
     await interaction.editReply({ embeds: [embed], components });
   },
 
+  // 🧪 テスト用サブコマンドを追加
+async handleTest(interaction) {
+  try {
+    const NotificationTester = require('../services/notificationTester');
+    const tester = new NotificationTester(interaction.client);
+    
+    const action = interaction.options.getString('action');
+    const mangaId = interaction.options.getInteger('manga_id');
+    
+    switch (action) {
+      case 'notification':
+        if (!mangaId) {
+          await interaction.editReply('❌ 漫画IDを指定してください。');
+          return;
+        }
+        
+        const success = await tester.testMangaNotification(mangaId, interaction.channelId);
+        
+        if (success) {
+          await interaction.editReply('✅ テスト通知を送信しました！');
+        } else {
+          await interaction.editReply('❌ テスト通知の送信に失敗しました。');
+        }
+        break;
+        
+      case 'all_notifications':
+        const count = await tester.testAllActiveNotifications(interaction.channelId);
+        await interaction.editReply(`✅ ${count}件のアクティブ通知をテスト送信しました！`);
+        break;
+        
+      case 'check_status':
+        const statuses = await tester.checkNotificationStatus(mangaId);
+        
+        if (statuses.length === 0) {
+          await interaction.editReply('❌ 通知設定が見つかりません。');
+          return;
+        }
+        
+        const embed = new EmbedBuilder()
+          .setTitle('🔍 通知設定チェック結果')
+          .setColor('#2196F3')
+          .setDescription(`${statuses.length}件の通知設定が見つかりました`);
+        
+        statuses.forEach(status => {
+          const statusEmoji = status.isActive ? '🔔' : '🔕';
+          const scheduleEmoji = status.isValidSchedule ? '✅' : '❌';
+          
+          embed.addFields({
+            name: `${statusEmoji} ${status.title} (ID:${status.mangaId})`,
+            value: `状態: ${status.status}\nスケジュール: ${scheduleEmoji} ${status.schedule}\n次回: ${status.nextNotification || '未設定'}`,
+            inline: true
+          });
+        });
+        
+        await interaction.editReply({ embeds: [embed] });
+        break;
+        
+      case 'update_schedule':
+        if (!mangaId) {
+          await interaction.editReply('❌ 漫画IDを指定してください。');
+          return;
+        }
+        
+        const updateSuccess = await tester.updateNextNotification(mangaId);
+        
+        if (updateSuccess) {
+          await interaction.editReply('✅ 次回通知日時を更新しました！');
+        } else {
+          await interaction.editReply('❌ 次回通知日時の更新に失敗しました。');
+        }
+        break;
+        
+      default:
+        await interaction.editReply('❌ 不明なテストアクション。');
+    }
+    
+  } catch (error) {
+    console.error('漫画テストエラー:', error);
+    await interaction.editReply('❌ テスト実行中にエラーが発生しました。');
+  }
+},
+
+// 🧪 デバッグ用: 通知設定の詳細表示
+async handleDebugNotifications(interaction) {
+  try {
+    const notificationData = await googleSheets.getData('notification_schedules!A:I');
+    
+    if (!notificationData || notificationData.length <= 1) {
+      await interaction.editReply('❌ 通知設定が見つかりません。');
+      return;
+    }
+    
+    const embed = new EmbedBuilder()
+      .setTitle('🔧 通知設定デバッグ情報')
+      .setColor('#FF9800')
+      .setDescription('notification_schedulesシートの内容');
+    
+    // ヘッダー情報
+    const headers = notificationData[0];
+    embed.addFields({
+      name: '📋 ヘッダー',
+      value: headers.join(' | '),
+      inline: false
+    });
+    
+    // データ行（最初の5件）
+    const dataRows = notificationData.slice(1, 6);
+    dataRows.forEach((row, index) => {
+      const scheduleData = row[4] ? JSON.parse(row[4]) : {};
+      
+      embed.addFields({
+        name: `📝 行${index + 2}`,
+        value: `ID: ${row[0]}\nType: ${row[1]}\nManga ID: ${row[2]}\nTitle: ${row[3]}\nSchedule: ${scheduleData.displayName || '不明'}\nStatus: ${row[5]}\nNext: ${row[8] || '未設定'}`,
+        inline: true
+      });
+    });
+    
+    if (notificationData.length > 6) {
+      embed.addFields({
+        name: '📝 その他',
+        value: `... 他${notificationData.length - 6}行`,
+        inline: false
+      });
+    }
+    
+    await interaction.editReply({ embeds: [embed] });
+    
+  } catch (error) {
+    console.error('通知設定デバッグエラー:', error);
+    await interaction.editReply('❌ デバッグ情報の取得中にエラーが発生しました。');
+  }
+},
+
   // 🆕 スケジュール通知設定メソッドを追加
 async setupUpdateNotification(mangaId, title, updateSchedule) {
   try {
