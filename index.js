@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
+const MangaNotificationScheduler = require('./services/mangaNotificationScheduler');
 const fs = require('fs');
 const path = require('path');
 
@@ -102,6 +103,34 @@ client.once('ready', async () => {
     console.error('❌ サービス初期化エラー:', error);
   }
 });
+
+// 🆕 漫画通知スケジューラーのインスタンス
+let mangaNotificationScheduler;
+
+client.once('ready', async () => {
+  console.log(`✅ ${client.user.tag} でログインしました！`);
+  
+  // 🆕 漫画通知スケジューラーを開始
+  try {
+    mangaNotificationScheduler = new MangaNotificationScheduler(client);
+    mangaNotificationScheduler.start();
+    
+    console.log('🔔 漫画通知スケジューラーが開始されました');
+    
+    // スケジューラーの状態をログ出力
+    const status = mangaNotificationScheduler.getStatus();
+    console.log('📊 スケジューラー状態:', {
+      isRunning: status.isRunning,
+      checkInterval: `${status.checkInterval / (60 * 1000)}分`,
+      notificationChannelId: status.notificationChannelId,
+      nextCheck: status.nextCheck
+    });
+    
+  } catch (error) {
+    console.error('❌ 漫画通知スケジューラーの開始に失敗:', error);
+  }
+});
+
 
 // インタラクション処理
 client.on('interactionCreate', async interaction => {
@@ -2268,6 +2297,11 @@ process.on('uncaughtException', error => {
 // 終了処理
 process.on('SIGINT', async () => {
   console.log('🛑 シャットダウン処理開始...');
+
+  if (mangaNotificationScheduler) {
+    mangaNotificationScheduler.stop();
+    console.log('🔔 漫画通知スケジューラーを停止しました');
+  }
   
   if (notificationService) {
     await notificationService.emergencyStop();
